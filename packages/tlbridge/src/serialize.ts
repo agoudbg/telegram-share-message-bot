@@ -14,16 +14,11 @@ import type { TLJsonObject, TLJsonValue } from './types.js';
 const INTEGER_CTOR_NAMES = new Set(['Integer', 'SmallInteger', 'BigInteger']);
 
 function isBigIntegerInstance(value: object): boolean {
-  // big-integer instances have constructor name SmallInteger/BigInteger and
-  // their toJSON returns a decimal string
+  // big-integer instances have constructor name SmallInteger/BigInteger; rely
+  // on the constructor name only — duck-typing on toJSON() would misclassify
+  // any object whose toJSON happens to return a decimal string
   const ctorName: unknown = value.constructor?.name;
-  if (typeof ctorName === 'string' && INTEGER_CTOR_NAMES.has(ctorName)) return true;
-  const toJSON: unknown = (value as { toJSON?: unknown }).toJSON;
-  if (typeof toJSON === 'function') {
-    const out: unknown = (toJSON as () => unknown).call(value);
-    return typeof out === 'string' && /^-?\d+$/.test(out);
-  }
-  return false;
+  return typeof ctorName === 'string' && INTEGER_CTOR_NAMES.has(ctorName);
 }
 
 export function serializeTL(value: unknown): TLJsonValue {
