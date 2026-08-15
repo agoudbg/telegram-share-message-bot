@@ -134,8 +134,9 @@ To bound disk/bandwidth, files above a configurable threshold (default e.g.
 - The DB stores raw TL; **the external API only serves sanitized copies**:
   strip `accessHash`/`fileReference`/`dcId` (media is hosted by us; the
   frontend uses blobUrl); remap real user/channel/chat ids to fake ids via
-  share-scoped HMAC (valid int64, not correlatable across shares); erase the
-  forwarder's identity; keep `fwdFrom.fromName` (hidden users)
+  share-scoped HMAC-SHA256 (keyed per share, valid int64, not correlatable
+  across shares); erase the forwarder's identity; keep `fwdFrom.fromName`
+  (hidden users)
 - bot token / StringSession / api_hash live only on the server
 - Full message text and origin names are public by design (that is the
   product); the README states this plainly

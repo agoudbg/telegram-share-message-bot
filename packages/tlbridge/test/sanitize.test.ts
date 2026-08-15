@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSanitizer, fnv1a64 } from '../src/sanitize.js';
+import { createSanitizer, hmacSha256, sha256 } from '../src/sanitize.js';
 import { serializeTL } from '../src/serialize.js';
 import type { TLJsonObject } from '../src/types.js';
 
@@ -99,8 +99,15 @@ describe('createSanitizer', () => {
     expect(out.firstName).toBe('Alice');
   });
 
-  it('fnv1a64 is deterministic', () => {
-    expect(fnv1a64('x:1')).toBe(fnv1a64('x:1'));
-    expect(fnv1a64('x:1')).not.toBe(fnv1a64('y:1'));
+  it('sha256 matches the known empty-string vector', () => {
+    const hex = [...sha256(new Uint8Array(0))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    expect(hex).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+  });
+
+  it('hmacSha256 matches RFC 4231 test case 1', () => {
+    const key = new Uint8Array(20).fill(0x0b);
+    const digest = hmacSha256(key, new TextEncoder().encode('Hi There'));
+    const hex = [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
+    expect(hex).toBe('b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7');
   });
 });
