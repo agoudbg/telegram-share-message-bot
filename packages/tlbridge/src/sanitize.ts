@@ -159,6 +159,10 @@ function defaultHashFn(shareSecret: string, realId: string): bigint {
   return new DataView(digest.buffer).getBigUint64(0);
 }
 
+/** Create a sanitizer for ONE share. Never reuse an instance across shares:
+ *  the internal id map is share-scoped state, and reusing it would give two
+ *  shares identical real→fake id mappings, silently breaking cross-share
+ *  isolation. The server layer must create a fresh instance per share. */
 export function createSanitizer(options: SanitizerOptions): TLSanitizer {
   const hashFn = options.hashFn ?? ((realId: string) => defaultHashFn(options.shareSecret, realId));
   const idMap = new Map<string, string>();

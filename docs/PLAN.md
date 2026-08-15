@@ -137,6 +137,9 @@ To bound disk/bandwidth, files above a configurable threshold (default e.g.
   share-scoped HMAC-SHA256 (keyed per share, valid int64, not correlatable
   across shares); erase the forwarder's identity; keep `fwdFrom.fromName`
   (hidden users)
+- The sanitizer instance is per-share state: the server must create a fresh
+  instance per share and never reuse one across shares (the internal id map
+  would otherwise correlate different shares)
 - bot token / StringSession / api_hash live only on the server
 - Full message text and origin names are public by design (that is the
   product); the README states this plainly
