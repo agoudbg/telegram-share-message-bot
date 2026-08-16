@@ -236,8 +236,9 @@ layer is isolated so Postgres can replace it later.
 **Commit 6 — `feat(server): SQLite storage layer`**
 
 - Migrations: shares, messages (share_id, seq, tl_json, nested_forward),
-  media (key, mime, size, path, hosted, reference JSON), peers (fake id →
-  display name/avatar key)
+  media (key, mime, size, path, hosted, reference JSON), peers (real peer id
+  → display name/avatar key; the fake-id remap happens at serve time, same
+  as messages — sanitization stays in exactly one place, §5)
 - Acceptance: in-memory SQLite unit tests
 
 **Commit 7 — `feat(bot): forward batching engine`**
