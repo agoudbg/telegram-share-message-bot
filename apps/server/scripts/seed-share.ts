@@ -201,6 +201,41 @@ const MEDIA_MESSAGES = [
   }),
 ];
 
+// --- Unhosted media share ----------------------------------------------------
+
+const UNHOSTED = {
+  video: {
+    id: '800007', file: 'video.mp4', mime: 'video/mp4', width: 640, height: 360, thumbFile: 'thumb.jpg',
+  },
+  photo: {
+    id: '800008', file: 'photo.png', mime: 'image/png', width: 640, height: 360,
+  },
+} satisfies Record<string, MediaFixture>;
+
+// Mirrors the InputDocument JSON the bot persists for oversized files; only
+// its presence matters here (it makes the media row `retrievable`)
+const FAKE_REFERENCE = JSON.stringify({
+  className: 'InputDocument',
+  id: { $long: '800007' },
+  accessHash: { $long: '1' },
+  fileReference: { $bytes: 'AAEC' },
+});
+
+const UNHOSTED_MESSAGES = [
+  makeMessage(1, {
+    message: 'Oversized video (retrievable via the bot)',
+    media: documentMedia(UNHOSTED.video, [
+      {
+        className: 'DocumentAttributeVideo', w: 640, h: 360, duration: 3, supportsStreaming: true,
+      },
+      { className: 'DocumentAttributeFilename', fileName: 'video.mp4' },
+    ], VIDEO_THUMBS),
+  }),
+  makeMessage(2, {
+    media: photoMedia(UNHOSTED.photo),
+  }),
+];
+
 function seedShare(db: ReturnType<typeof openDatabase>, shareId: string, messages: unknown[]): void {
   if (getShare(db, shareId) !== null) {
     deleteShare(db, shareId, FORWARDER);
@@ -222,6 +257,29 @@ function main(): void {
 
   seedShare(db, 'demo-text', TEXT_MESSAGES);
   seedShare(db, 'demo-media', MEDIA_MESSAGES);
+  seedShare(db, 'demo-unhosted', UNHOSTED_MESSAGES);
+
+  // Unhosted rows: flagged hosted:false, no file on disk; the video keeps its
+  // InputDocument reference (retrievable), the photo does not
+  insertMediaIfAbsent(db, {
+    key: UNHOSTED.video.id,
+    mime: UNHOSTED.video.mime,
+    size: 734003200,
+    hosted: false,
+    reference: FAKE_REFERENCE,
+    width: UNHOSTED.video.width,
+    height: UNHOSTED.video.height,
+  });
+  linkMediaToShare(db, 'demo-unhosted', UNHOSTED.video.id);
+  insertMediaIfAbsent(db, {
+    key: UNHOSTED.photo.id,
+    mime: UNHOSTED.photo.mime,
+    size: 524288000,
+    hosted: false,
+    width: UNHOSTED.photo.width,
+    height: UNHOSTED.photo.height,
+  });
+  linkMediaToShare(db, 'demo-unhosted', UNHOSTED.photo.id);
 
   const mediaDir = path.join(dataDir, 'media');
   mkdirSync(mediaDir, { recursive: true });

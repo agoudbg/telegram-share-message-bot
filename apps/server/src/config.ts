@@ -9,6 +9,9 @@ export interface ServerConfig {
    *  share id it forms the sanitizer's shareSecret, so fake ids cannot be
    *  recomputed offline from a leaked share id (docs/PLAN.md §2.6). */
   sanitizeSecret: string;
+  /** Bot username (without @) building the `get_<shareId>_<seq>` deep links
+   *  for unhosted media (docs/PLAN.md §2.5); undefined disables the button */
+  botUsername?: string;
 }
 
 const DEFAULT_PORT = 3000;
@@ -27,5 +30,6 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     dataDir: env.DATA_DIR || './data',
     port,
     sanitizeSecret,
+    botUsername: env.BOT_USERNAME?.replace(/^@/, '') || undefined,
   };
 }

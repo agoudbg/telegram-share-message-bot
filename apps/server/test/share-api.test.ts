@@ -196,6 +196,20 @@ describe('GET /api/shares/:id', () => {
     });
   });
 
+  it('exposes the configured bot username for unhosted-media deep links', async () => {
+    const db = openDatabase(':memory:');
+    seedShare(db, SHARE_ID);
+    const app = createServerApp({
+      db, sanitizeSecret: SECRET, dataDir: '/nonexistent', botUsername: 'examplebot',
+    });
+
+    const { body } = await fetchShare(app, SHARE_ID);
+    expect(body.botUsername).toBe('examplebot');
+
+    const withoutBot = await fetchShare(setup().app, SHARE_ID);
+    expect(withoutBot.body.botUsername).toBeNull();
+  });
+
   it('keeps fwdFrom.fromName for hidden origin users', async () => {
     const { app } = setup();
     const { body } = await fetchShare(app, SHARE_ID);

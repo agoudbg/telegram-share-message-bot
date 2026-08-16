@@ -41,6 +41,10 @@ export interface ShareResponse {
    *  the message TL JSON. Avatar files are not listed here (they are served
    *  through peers[].avatarUrl). */
   media: Record<string, ShareMediaEntry>;
+  /** Bot username (no @) for the unhosted-media deep link
+   *  `https://t.me/<bot>?start=get_<shareId>_<seq>` (§2.5); null when the
+   *  server is not configured with BOT_USERNAME */
+  botUsername: string | null;
 }
 
 export interface ShareMediaEntry {
@@ -63,6 +67,8 @@ export interface ServerAppDeps {
   sanitizeSecret: string;
   /** Base directory holding media/ (media rows store paths relative to it) */
   dataDir: string;
+  /** Bot username for unhosted-media deep links; omit to disable the button */
+  botUsername?: string;
 }
 
 function mediaUrl(shareId: string, fakeKey: string): string {
@@ -121,6 +127,7 @@ export function createServerApp(deps: ServerAppDeps): Hono {
       messages,
       peers,
       media,
+      botUsername: deps.botUsername ?? null,
     };
     return c.json(response);
   });

@@ -35,6 +35,7 @@ function main(): void {
     db,
     sanitizeSecret: config.sanitizeSecret,
     dataDir: config.dataDir,
+    botUsername: config.botUsername,
   });
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
