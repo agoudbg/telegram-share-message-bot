@@ -193,6 +193,9 @@ describe('MediaPipeline', () => {
       downloadAvatar: (peerId) => Promise.resolve(peerId !== 'noavatar'),
     };
     const pipeline = new MediaPipeline({ db, mediaDir, hostLimitBytes, host });
+    // Batches always have a share row in production (created at batch start);
+    // the share_media links written by the pipeline reference it
+    createShare(db, { id: 'share1', ownerUserId: 'u1' });
     return { db, downloads, pipeline, mediaDir };
   }
 
@@ -278,7 +281,6 @@ describe('MediaPipeline', () => {
 
   it('resolves origin avatars and skips unresolvable peers', async () => {
     const { db, pipeline } = await setup(1000);
-    createShare(db, { id: 'share1', ownerUserId: 'u1' }); // peers reference the share row
     const fwd = (peerId: string): TLJsonObject => ({
       className: 'Message',
       fwdFrom: {

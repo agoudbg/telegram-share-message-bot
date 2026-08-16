@@ -13,7 +13,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { StorageDatabase } from '@tbfb/server';
-import { getMedia, insertMediaIfAbsent, upsertPeer } from '@tbfb/server';
+import { getMedia, insertMediaIfAbsent, linkMediaToShare, upsertPeer } from '@tbfb/server';
 import type { TLJsonObject, TLJsonValue } from '@tbfb/tlbridge';
 import { isTLJsonLong } from '@tbfb/tlbridge';
 
@@ -206,6 +206,9 @@ export class MediaPipeline {
       onProgress?.(`Media ${index}/${batch.items.length}…`);
       try {
         const outcome = await this.processOne(info, item.message.raw);
+        // Link regardless of outcome: deduped rows still need the per-share
+        // link so the API can enumerate this share's media
+        linkMediaToShare(this.deps.db, batch.id, info.key);
         result[outcome] += 1;
       } catch (error) {
         result.failed += 1;
@@ -312,6 +315,7 @@ export class MediaPipeline {
           username: resolved.username ?? null,
           avatarKey,
         });
+        if (avatarKey !== null) linkMediaToShare(this.deps.db, batch.id, avatarKey);
         count += 1;
       } catch (error) {
         this.deps.log?.(`avatar resolution failed for peer ${peerId}: ${String(error)}`);

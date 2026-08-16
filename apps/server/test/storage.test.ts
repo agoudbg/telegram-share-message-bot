@@ -11,8 +11,10 @@ import {
   getShare,
   insertMediaIfAbsent,
   insertMessage,
+  linkMediaToShare,
   listMessages,
   listPeers,
+  listShareMedia,
   revokeShare,
   rewriteMessageSeqs,
   upsertPeer,
@@ -33,7 +35,7 @@ describe('openDatabase', () => {
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(tables).toEqual(['media', 'messages', 'peers', 'shares']);
+    expect(tables).toEqual(['media', 'messages', 'peers', 'share_media', 'shares']);
   });
 });
 
@@ -147,6 +149,22 @@ describe('media', () => {
     expect(row?.hosted).toBe(false);
     expect(row?.reference).toBe(reference);
     expect(row?.path).toBeNull();
+  });
+
+  it('links media to shares idempotently and lists per share', () => {
+    const db = freshDb();
+    createShare(db, { id: 's1', ownerUserId: '42' });
+    createShare(db, { id: 's2', ownerUserId: '42' });
+    insertMediaIfAbsent(db, { key: '123', path: 'media/123' });
+    insertMediaIfAbsent(db, { key: '456', path: 'media/456' });
+
+    linkMediaToShare(db, 's1', '123');
+    linkMediaToShare(db, 's1', '123'); // idempotent
+    linkMediaToShare(db, 's2', '123'); // the same global row, another share
+    linkMediaToShare(db, 's2', '456');
+
+    expect(listShareMedia(db, 's1').map((m) => m.key)).toEqual(['123']);
+    expect(listShareMedia(db, 's2').map((m) => m.key)).toEqual(['123', '456']);
   });
 });
 

@@ -208,6 +208,28 @@ export function getMedia(db: StorageDatabase, key: string): MediaRow | null {
   return row === undefined ? null : toMediaRow(row);
 }
 
+/** Record that a share references a media row (idempotent). Media rows are
+ *  global and deduped by key; the link table is what lets the API enumerate
+ *  one share's media. */
+export function linkMediaToShare(db: StorageDatabase, shareId: string, mediaKey: string): void {
+  db.prepare(`INSERT OR IGNORE INTO share_media (share_id, media_key) VALUES (?, ?)`).run(
+    shareId,
+    mediaKey,
+  );
+}
+
+/** All media rows referenced by a share (insertion order). */
+export function listShareMedia(db: StorageDatabase, shareId: string): MediaRow[] {
+  const rows = db
+    .prepare(
+      `SELECT m.* FROM media m
+       JOIN share_media sm ON sm.media_key = m.key
+       WHERE sm.share_id = ?`,
+    )
+    .all(shareId) as any[];
+  return rows.map(toMediaRow);
+}
+
 function toMediaRow(row: any): MediaRow {
   return {
     key: row.key,

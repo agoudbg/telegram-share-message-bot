@@ -280,12 +280,21 @@ layer is isolated so Postgres can replace it later.
 
 - Hono: `GET /api/shares/:id` → sanitized TL JSON array + peers + media map
   (incl. hosted flags)
+- Implementation details settled here: the media map is keyed by share-scoped
+  fake media keys (matching the sanitized Photo/Document `id` the frontend
+  sees); a `share_media` link table records which media each share references
+  (media files stay globally deduped by key); the sanitizer's shareSecret is
+  `SANITIZE_SECRET:shareId` (new env var); pending shares answer 404 like
+  unknown ones, revoked ones 410
 - Acceptance: curl verifies JSON shape and that sensitive fields are gone
 
 **Commit 11 — `feat(server): media streaming endpoint`**
 
 - `GET /media/:shareId/:key`: Range support, correct Content-Type, strong
   caching, 404/410
+- `:key` is the share-scoped fake media key from the Commit 10 media map
+  (resolved back per share; real ids never appear in URLs); thumbnails are
+  served via `?thumb=1`
 - Acceptance: curl Range requests, content-type checks
 
 ### Phase 4 — Web frontend (telegram-tt fork)

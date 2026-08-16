@@ -57,4 +57,18 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'share_media link table',
+    // Media files stay globally deduped by key; this link table records which
+    // media each share references so the API can enumerate a share's media
+    // without parsing message TL JSON (docs/PLAN.md, Phase 3 Commit 10).
+    sql: `
+      CREATE TABLE share_media (
+        share_id TEXT NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+        media_key TEXT NOT NULL REFERENCES media(key) ON DELETE CASCADE,
+        PRIMARY KEY (share_id, media_key)
+      );
+    `,
+  },
 ];
