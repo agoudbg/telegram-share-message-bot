@@ -12,7 +12,7 @@ export type {
 export { isTLJsonBytes, isTLJsonLong } from './types.js';
 export { base64ToBytes, bytesToBase64 } from './base64.js';
 export { serializeTL, serializeTLToString } from './serialize.js';
-export { createSanitizer, hmacSha256, sha256 } from './sanitize.js';
+export { createSanitizer, fakeIdFor, hmacSha256, sha256 } from './sanitize.js';
 export type { SanitizerOptions, TLSanitizer } from './sanitize.js';
 export { hydrateTL } from './hydrate.js';
 export type { TLConstructorLike, TLRegistry } from './hydrate.js';

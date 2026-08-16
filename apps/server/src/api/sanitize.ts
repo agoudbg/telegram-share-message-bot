@@ -6,31 +6,21 @@
 // sanitized, and media keys (real document/photo ids) are exposed only
 // through their share-scoped fake counterparts.
 
-import { createSanitizer, hmacSha256 } from '@tbfb/tlbridge';
+import { createSanitizer, fakeIdFor } from '@tbfb/tlbridge';
 import type { TLSanitizer } from '@tbfb/tlbridge';
 
 import type { StorageDatabase } from '../storage/database.js';
 import { listShareMedia } from '../storage/repository.js';
 import type { MediaRow } from '../storage/repository.js';
 
-const FAKE_ID_BASE = 1n << 62n;
-const FAKE_ID_SPAN = 1n << 62n;
-
-/** Same fake-id scheme as tlbridge's default hashFn: HMAC-SHA256 reduced to
- *  a non-negative int64 in [2^62, 2^63). */
-function hmacFakeId(keyMaterial: string, message: string): string {
-  const encoder = new TextEncoder();
-  const digest = hmacSha256(encoder.encode(keyMaterial), encoder.encode(message));
-  const value = new DataView(digest.buffer, digest.byteOffset, digest.byteLength).getBigUint64(0);
-  return (FAKE_ID_BASE + (value % FAKE_ID_SPAN)).toString();
-}
-
-/** Fresh sanitizer for one share (never reused across shares, §2.6). */
+/** Fresh sanitizer for one share (never reused across shares, §2.6). The
+ *  virtual-chat peer id goes through tlbridge's fakeIdFor so it stays
+ *  bit-identical to the sanitizer's own fake-id scheme. */
 export function createShareSanitizer(sanitizeSecret: string, shareId: string): TLSanitizer {
   const shareSecret = `${sanitizeSecret}:${shareId}`;
   return createSanitizer({
     shareSecret,
-    virtualChatPeerId: hmacFakeId(shareSecret, 'virtual-chat'),
+    virtualChatPeerId: fakeIdFor(shareSecret, 'virtual-chat'),
   });
 }
 

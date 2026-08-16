@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSanitizer, hmacSha256, sha256 } from '../src/sanitize.js';
+import { createSanitizer, fakeIdFor, hmacSha256, sha256 } from '../src/sanitize.js';
 import { serializeTL } from '../src/serialize.js';
 import type { TLJsonObject } from '../src/types.js';
 
@@ -109,5 +109,14 @@ describe('createSanitizer', () => {
     const digest = hmacSha256(key, new TextEncoder().encode('Hi There'));
     const hex = [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
     expect(hex).toBe('b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7');
+  });
+
+  it('fakeIdFor is bit-identical to the sanitizer default scheme', () => {
+    // Guards the lock-step the server relies on for its virtual-chat peer id
+    const s = createSanitizer({ shareSecret: 'share-secret', virtualChatPeerId: '1' });
+    for (const realId of ['0', '123', '555000111', '9223372036854775807']) {
+      expect(fakeIdFor('share-secret', realId)).toBe(s.fakeId(realId));
+    }
+    expect(fakeIdFor('other-secret', '123')).not.toBe(fakeIdFor('share-secret', '123'));
   });
 });

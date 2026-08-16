@@ -159,6 +159,15 @@ function defaultHashFn(shareSecret: string, realId: string): bigint {
   return new DataView(digest.buffer).getBigUint64(0);
 }
 
+/** The default-scheme fake id for a real id under a share secret:
+ *  HMAC-SHA256 keyed with shareSecret, reduced into [2^62, 2^63). Bit-
+ *  identical to TLSanitizer.fakeId when no custom hashFn is given — use this
+ *  for fake ids computed outside a sanitizer instance (e.g. the server's
+ *  virtual-chat peer id) so the two can never drift apart. */
+export function fakeIdFor(shareSecret: string, realId: string): string {
+  return (FAKE_ID_BASE + (defaultHashFn(shareSecret, realId) % FAKE_ID_SPAN)).toString();
+}
+
 /** Create a sanitizer for ONE share. Never reuse an instance across shares:
  *  the internal id map is share-scoped state, and reusing it would give two
  *  shares identical real→fake id mappings, silently breaking cross-share
