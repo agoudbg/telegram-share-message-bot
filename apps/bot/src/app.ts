@@ -100,7 +100,17 @@ export class BotApp {
             nestedForward: item.nestedForward,
           });
         },
-        onBatchFinalize: (batch) => this.finalizeBatch(batch),
+        onBatchFinalize: async (batch) => {
+          try {
+            await this.finalizeBatch(batch);
+          } catch (error) {
+            // Never leave an orphan pending share behind: a share that
+            // failed mid-finalize is dropped (a public one is kept)
+            const share = getShare(deps.db, batch.id);
+            if (share?.status === 'pending') deleteShare(deps.db, batch.id, batch.chatId);
+            throw error;
+          }
+        },
         onError: (error, chatId) => {
           deps.log?.(`batch error for chat ${chatId}: ${String(error)}`);
           void deps.ports

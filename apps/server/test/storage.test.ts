@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/storage/database.js';
 import {
   createShare,
+  deleteStalePendingShares,
   finalizeShare,
   getMedia,
   getMessage,
@@ -70,6 +71,19 @@ describe('shares', () => {
   it('returns null for unknown shares', () => {
     const db = freshDb();
     expect(getShare(db, 'nope')).toBeNull();
+  });
+
+  it('deletes only stale pending shares (crash orphans)', () => {
+    const db = freshDb();
+    createShare(db, { id: 'old_pending', ownerUserId: '42', createdAt: 1000 });
+    createShare(db, { id: 'fresh_pending', ownerUserId: '42', createdAt: 5000 });
+    createShare(db, { id: 'old_public', ownerUserId: '42', createdAt: 1000 });
+    finalizeShare(db, 'old_public', 1500);
+
+    expect(deleteStalePendingShares(db, 3600, 5000)).toBe(1);
+    expect(getShare(db, 'old_pending')).toBeNull();
+    expect(getShare(db, 'fresh_pending')?.status).toBe('pending');
+    expect(getShare(db, 'old_public')?.status).toBe('public');
   });
 });
 

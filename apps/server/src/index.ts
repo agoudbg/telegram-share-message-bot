@@ -7,6 +7,7 @@ export { MIGRATIONS } from './storage/schema.js';
 export {
   createShare,
   deleteShare,
+  deleteStalePendingShares,
   finalizeShare,
   getMedia,
   getMessage,

@@ -10,7 +10,7 @@ import bigInt from 'big-integer';
 import { Api, TelegramClient, events, sessions } from 'teleproto';
 import { serializeTL } from '@tbfb/tlbridge';
 import type { TLJsonObject } from '@tbfb/tlbridge';
-import { openDatabase } from '@tbfb/server';
+import { openDatabase, deleteStalePendingShares } from '@tbfb/server';
 
 import { BotApp } from './app.js';
 import { loadConfig } from './config.js';
@@ -35,6 +35,8 @@ function loadEnvFile(): void {
   }
 }
 
+const STALE_PENDING_SHARE_SECONDS = 3600;
+
 async function main(): Promise<void> {
   loadEnvFile();
   const config = loadConfig();
@@ -55,6 +57,11 @@ async function main(): Promise<void> {
   );
 
   const db = openDatabase(path.join(config.dataDir, 'tbfb.db'));
+
+  // Crash cleanup: drop pending shares orphaned by an interrupted batch
+  // (docs/PLAN.md §2.3) — they can never finalize after a restart
+  const orphanShares = deleteStalePendingShares(db, STALE_PENDING_SHARE_SECONDS);
+  if (orphanShares > 0) console.log(`Cleaned up ${orphanShares} orphan pending share(s).`);
 
   const session = new sessions.StringSession(config.session);
   const client = new TelegramClient(session, config.apiId, config.apiHash, {

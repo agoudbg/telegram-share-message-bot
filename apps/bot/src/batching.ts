@@ -6,7 +6,8 @@
 // - /cancel drops it
 // - groupedId albums keep their message-id order
 // - every message is serialized + nested-forward marked + persisted by the
-//   callbacks as it arrives (crash-safe in-progress batch)
+//   callbacks as it arrives; a crash or a failed finalize leaves an orphan
+//   pending share, which the bot deletes on finalize failure and on startup
 
 import { extractForwardOrigin } from '@tbfb/tlbridge';
 import type { ForwardOriginInfo, TLJsonObject } from '@tbfb/tlbridge';

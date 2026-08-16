@@ -108,6 +108,21 @@ export function deleteShare(db: StorageDatabase, id: string, ownerUserId: string
   return result.changes > 0;
 }
 
+/** Hard-delete pending shares created more than `olderThanSeconds` ago —
+ *  orphans left behind by a crash or a failed finalization (docs/PLAN.md
+ *  §2.3). Returns the number of deleted shares. */
+export function deleteStalePendingShares(
+  db: StorageDatabase,
+  olderThanSeconds: number,
+  now?: number,
+): number {
+  const cutoff = (now ?? Math.floor(Date.now() / 1000)) - olderThanSeconds;
+  const result = db
+    .prepare(`DELETE FROM shares WHERE status = 'pending' AND created_at < ?`)
+    .run(cutoff);
+  return result.changes;
+}
+
 export function insertMessage(
   db: StorageDatabase,
   message: { shareId: string; seq: number; tlJson: string; nestedForward?: boolean },

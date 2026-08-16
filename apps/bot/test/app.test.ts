@@ -284,6 +284,41 @@ describe('BotApp', () => {
     expect(getShare(db, 'share_2')?.status).toBe('pending');
   });
 
+  it('drops the pending share when finalization fails', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-app-'));
+    dirs.push(dataDir);
+    const db = openDatabase(':memory:');
+    const { ports, texts } = fakePorts();
+
+    // Make the "⏳ Processing…" status message fail mid-finalize
+    const realSend = ports.sendText;
+    ports.sendText = (chatId, text, opts) =>
+      text.startsWith('⏳') ? Promise.reject(new Error('boom')) : realSend(chatId, text, opts);
+
+    let n = 0;
+    const app = new BotApp({
+      config: {
+        publicOrigin: 'https://share.example.com',
+        botUsername: 'mybot',
+        miniAppShortName: 'view',
+        batchSilenceMs: 2000,
+        mediaHostLimitBytes: HOST_LIMIT,
+        dataDir,
+      },
+      db,
+      ports,
+      createShareId: () => `share_${++n}`,
+      sleep: () => Promise.resolve(),
+    });
+
+    await app.handleMessage(forwardMessage('u1', 1, 100));
+    await app.handleDoneCallback('u1');
+
+    // No orphan pending share, and the user heard about the failure
+    expect(getShare(db, 'share_1')).toBeNull();
+    expect(texts.at(-1)!.text).toContain('went wrong');
+  });
+
   it("/delete revokes only the owner's share", async () => {
     const { app, db, texts } = await trackedSetup();
     await app.handleMessage(forwardMessage('u1', 1, 100));
