@@ -77,6 +77,9 @@ export class BotApp {
   private readonly fallbackLimiter = new RateLimiter(FALLBACK_RATE_LIMIT_MS);
   private readonly sendQueue = new SendQueue();
   private readonly shareIdFn: () => string;
+  /** chatId → message id of the "Collecting your batch…" prompt (deleted
+   *  once the share is ready or the batch is cancelled) */
+  private readonly collectingPrompts = new Map<string, number>();
 
   constructor(private readonly deps: BotAppDeps) {
     this.shareIdFn = deps.createShareId ?? createShareId;
@@ -122,11 +125,12 @@ export class BotApp {
     if (msg.isForward) {
       const outcome = this.batches.handle(msg);
       if (outcome === 'started') {
-        await this.deps.ports.sendText(
+        const promptId = await this.deps.ports.sendText(
           msg.chatId,
           '📥 Collecting your batch… Forward more messages, then wait a moment or tap the button.',
           { doneButton: true },
         );
+        if (promptId !== undefined) this.collectingPrompts.set(msg.chatId, promptId);
       }
       return;
     }
@@ -166,6 +170,7 @@ export class BotApp {
         const batchId = this.batches.cancel(chatId);
         if (batchId !== null) {
           deleteShare(this.deps.db, batchId, chatId);
+          await this.deleteCollectingPrompt(chatId);
           await this.deps.ports.sendText(chatId, '🚮 Batch cancelled.');
         } else {
           await this.deps.ports.sendText(chatId, 'No batch is being collected right now.');
@@ -268,5 +273,21 @@ export class BotApp {
     await ports.sendText(batch.chatId, buildShareReply(links, batch.items.length, media), {
       webAppButton: { text: 'Open share page', url: links.webUrl },
     });
+
+    // The share is ready: remove the transient prompt/status messages
+    const promptId = this.collectingPrompts.get(batch.chatId);
+    this.collectingPrompts.delete(batch.chatId);
+    const transientIds = [promptId, statusId].filter((id): id is number => id !== undefined);
+    if (transientIds.length > 0) {
+      await ports.deleteMessages(batch.chatId, transientIds).catch(() => undefined);
+    }
+  }
+
+  /** Best-effort delete of the "Collecting your batch…" prompt. */
+  private async deleteCollectingPrompt(chatId: string): Promise<void> {
+    const promptId = this.collectingPrompts.get(chatId);
+    if (promptId === undefined) return;
+    this.collectingPrompts.delete(chatId);
+    await this.deps.ports.deleteMessages(chatId, [promptId]).catch(() => undefined);
   }
 }

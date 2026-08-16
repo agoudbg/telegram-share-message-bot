@@ -47,6 +47,9 @@ export interface BotPorts {
   editText(chatId: string, messageId: number, text: string): Promise<void>;
   /** Re-send an unhosted file by reusing its InputDocument reference */
   sendDocumentByRef(chatId: string, ref: InputDocumentRef, caption?: string): Promise<void>;
+  /** Delete bot messages (best effort: the collecting prompt and the
+   *  processing status are removed once a share is ready) */
+  deleteMessages(chatId: string, messageIds: number[]): Promise<void>;
   downloadMedia(
     raw: unknown,
     destAbsPath: string,

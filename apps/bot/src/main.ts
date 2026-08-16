@@ -136,6 +136,10 @@ function createTeleprotoPorts(client: TelegramClient): BotPorts {
       await client.editMessage(chatId, { message: messageId, text });
     },
 
+    async deleteMessages(chatId, messageIds) {
+      await client.deleteMessages(chatId, messageIds, { revoke: true });
+    },
+
     async sendDocumentByRef(chatId, ref, caption) {
       // Re-send by reusing the InputDocument: a server-side copy inside
       // Telegram, nothing is downloaded or uploaded by us (§2.5)

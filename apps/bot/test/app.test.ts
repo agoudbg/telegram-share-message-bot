@@ -33,6 +33,7 @@ interface SentDoc {
 function fakePorts() {
   const texts: SentText[] = [];
   const docs: SentDoc[] = [];
+  const deleted: Array<{ chatId: string; messageIds: number[] }> = [];
   let nextId = 1;
   const ports: BotPorts = {
     sendText: (chatId, text, opts) => {
@@ -44,12 +45,16 @@ function fakePorts() {
       docs.push({ chatId, ref, caption });
       return Promise.resolve();
     },
+    deleteMessages: (chatId, messageIds) => {
+      deleted.push({ chatId, messageIds });
+      return Promise.resolve();
+    },
     downloadMedia: () => Promise.resolve(),
     downloadThumb: () => Promise.resolve(false),
     resolvePeer: () => Promise.resolve(null),
     downloadAvatar: () => Promise.resolve(false),
   };
-  return { ports, texts, docs };
+  return { ports, texts, docs, deleted };
 }
 
 function commandMessage(chatId: string, text: string): NormalizedMessage {
@@ -111,7 +116,7 @@ const HOST_LIMIT = 1000;
 async function setup() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-app-'));
   const db = openDatabase(':memory:');
-  const { ports, texts, docs } = fakePorts();
+  const { ports, texts, docs, deleted } = fakePorts();
   let shareCounter = 0;
   const app = new BotApp({
     config: {
@@ -127,7 +132,7 @@ async function setup() {
     createShareId: () => `share_${++shareCounter}`,
     sleep: () => Promise.resolve(),
   });
-  return { app, db, texts, docs, dataDir };
+  return { app, db, texts, docs, deleted, dataDir };
 }
 
 describe('BotApp', () => {
@@ -153,7 +158,7 @@ describe('BotApp', () => {
   });
 
   it('collects a batch, finalizes it into a public share and replies with links', async () => {
-    const { app, db, texts } = await trackedSetup();
+    const { app, db, texts, deleted } = await trackedSetup();
 
     await app.handleMessage(forwardMessage('u1', 1, 100));
     await app.handleMessage(forwardMessage('u1', 2, 50)); // strictly earlier → nested
@@ -172,6 +177,10 @@ describe('BotApp', () => {
     expect(reply.text).toContain('https://share.example.com/s/share_1');
     expect(reply.text).toContain('https://t.me/mybot/view?startapp=share_1');
     expect(reply.opts?.webAppButton?.url).toBe('https://share.example.com/s/share_1');
+
+    // The collecting prompt (id 1) and the processing status (id 2) are
+    // deleted once the share is ready
+    expect(deleted).toEqual([{ chatId: 'u1', messageIds: [1, 2] }]);
   });
 
   it('ignores non-forward, non-command messages with a hint', async () => {
@@ -181,13 +190,15 @@ describe('BotApp', () => {
   });
 
   it('/cancel drops the in-progress batch and its pending share', async () => {
-    const { app, db, texts } = await trackedSetup();
+    const { app, db, texts, deleted } = await trackedSetup();
     await app.handleMessage(forwardMessage('u1', 1, 100));
     expect(getShare(db, 'share_1')?.status).toBe('pending');
 
     await app.handleMessage(commandMessage('u1', '/cancel'));
     expect(getShare(db, 'share_1')).toBeNull();
     expect(texts.at(-1)!.text).toContain('cancelled');
+    // The collecting prompt is removed as well
+    expect(deleted).toEqual([{ chatId: 'u1', messageIds: [1] }]);
 
     await app.handleMessage(commandMessage('u1', '/cancel'));
     expect(texts.at(-1)!.text).toContain('No batch');
