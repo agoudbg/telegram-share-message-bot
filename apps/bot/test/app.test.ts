@@ -74,11 +74,12 @@ function forwardMessage(
   id: number,
   fwdDate: number,
   tlExtra?: TLJsonObject,
+  text = '',
 ): NormalizedMessage {
   return {
     chatId,
     messageId: id,
-    text: '',
+    text,
     isPrivate: true,
     isForward: true,
     tlJson: {
@@ -181,6 +182,21 @@ describe('BotApp', () => {
     // The collecting prompt (id 1) and the processing status (id 2) are
     // deleted once the share is ready
     expect(deleted).toEqual([{ chatId: 'u1', messageIds: [1, 2] }]);
+  });
+
+  it('treats forwarded text starting with / as batch material, not commands', async () => {
+    const { app, db, texts } = await trackedSetup();
+    // A forwarded "/cancel" must not cancel the batch it just started…
+    await app.handleMessage(forwardMessage('u1', 1, 100, undefined, '/cancel'));
+    // …and a forwarded deep link must not trigger the file fallback.
+    await app.handleMessage(forwardMessage('u1', 2, 100, undefined, '/start get_x_y'));
+
+    const share = getShare(db, 'share_1');
+    expect(share?.status).toBe('pending');
+    expect(listMessages(db, 'share_1')).toHaveLength(2);
+    // Only the collecting prompt was sent — no command replies at all.
+    expect(texts).toHaveLength(1);
+    expect(texts[0]!.text).toContain('Collecting');
   });
 
   it('ignores non-forward, non-command messages with a hint', async () => {

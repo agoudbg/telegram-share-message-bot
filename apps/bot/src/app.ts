@@ -116,12 +116,8 @@ export class BotApp {
   async handleMessage(msg: NormalizedMessage): Promise<void> {
     if (!msg.isPrivate) return;
 
-    const text = msg.text.trim();
-    if (text.startsWith('/')) {
-      await this.handleCommand(msg.chatId, text);
-      return;
-    }
-
+    // Forwards are batch material first: Telegram preserves the original
+    // text verbatim, so a forwarded "/cancel" must never hit command routing.
     if (msg.isForward) {
       const outcome = this.batches.handle(msg);
       if (outcome === 'started') {
@@ -132,6 +128,12 @@ export class BotApp {
         );
         if (promptId !== undefined) this.collectingPrompts.set(msg.chatId, promptId);
       }
+      return;
+    }
+
+    const text = msg.text.trim();
+    if (text.startsWith('/')) {
+      await this.handleCommand(msg.chatId, text);
       return;
     }
 
