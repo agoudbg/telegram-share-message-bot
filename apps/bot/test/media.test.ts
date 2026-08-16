@@ -153,6 +153,20 @@ describe('withRetry', () => {
     ).rejects.toThrow('boom');
     expect(calls).toBe(3);
   });
+
+  it('does not retry permanent client errors (code < 500)', async () => {
+    let calls = 0;
+    await expect(
+      withRetry(
+        () => {
+          calls += 1;
+          return Promise.reject(Object.assign(new Error('bad request'), { code: 400 }));
+        },
+        { sleep: noSleep },
+      ),
+    ).rejects.toThrow('bad request');
+    expect(calls).toBe(1);
+  });
 });
 
 describe('MediaPipeline', () => {

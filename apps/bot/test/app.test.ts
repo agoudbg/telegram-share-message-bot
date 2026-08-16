@@ -235,7 +235,7 @@ describe('BotApp', () => {
     expect(texts.at(-1)!.text).toContain('No batch');
   });
 
-  it('a late-finalizing batch never deletes the next batch\'s prompt', async () => {
+  it("a late-finalizing batch never deletes the next batch's prompt", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-app-'));
     dirs.push(dataDir);
     const db = openDatabase(':memory:');

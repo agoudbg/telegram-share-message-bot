@@ -76,7 +76,9 @@ export interface BotAppDeps {
 export class BotApp {
   private readonly batches: BatchManager;
   private readonly fallbackLimiter = new RateLimiter(FALLBACK_RATE_LIMIT_MS);
-  private readonly sendQueue = new SendQueue();
+  /** Per-user fallback queues: one user's FloodWait must not stall the file
+   *  deliveries of everyone else */
+  private readonly sendQueues = new Map<string, SendQueue>();
   private readonly shareIdFn: () => string;
   /** batchId → message id of the "Collecting your batch…" prompt (deleted
    *  once the share is ready or the batch is cancelled). Keyed by batch, not
@@ -244,7 +246,7 @@ export class BotApp {
     }
 
     const reference = JSON.parse(media.reference) as InputDocumentRef;
-    await this.sendQueue.enqueue(() =>
+    await this.sendQueueFor(chatId).enqueue(() =>
       withRetry(
         () =>
           this.deps.ports.sendDocumentByRef(
@@ -255,6 +257,15 @@ export class BotApp {
         { sleep: this.deps.sleep },
       ),
     );
+  }
+
+  private sendQueueFor(chatId: string): SendQueue {
+    let queue = this.sendQueues.get(chatId);
+    if (queue === undefined) {
+      queue = new SendQueue();
+      this.sendQueues.set(chatId, queue);
+    }
+    return queue;
   }
 
   /** Batch finished: download media, resolve avatars, publish, reply. */

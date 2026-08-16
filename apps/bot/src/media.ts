@@ -134,8 +134,9 @@ function defaultSleep(ms: number): Promise<void> {
 }
 
 /** Retry with FloodWait absorption (docs/PLAN.md §6 "Bot PM flood limits"):
- *  an error carrying a numeric `seconds` sleeps exactly that long; anything
- *  else backs off exponentially. */
+ *  an error carrying a numeric `seconds` sleeps exactly that long; a numeric
+ *  `code` below 500 is a permanent client error (e.g. 400) and is rethrown
+ *  immediately; anything else backs off exponentially. */
 export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const retries = options.retries ?? 3;
   const baseDelayMs = options.baseDelayMs ?? 1000;
@@ -149,11 +150,13 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
       lastError = error;
       if (attempt === retries) break;
       const seconds = (error as { seconds?: unknown })?.seconds;
-      const delayMs =
-        typeof seconds === 'number' && seconds > 0
-          ? Math.min(seconds, 60) * 1000
-          : baseDelayMs * 2 ** attempt;
-      await sleep(delayMs);
+      if (typeof seconds === 'number' && seconds > 0) {
+        await sleep(Math.min(seconds, 60) * 1000);
+        continue;
+      }
+      const code = (error as { code?: unknown })?.code;
+      if (typeof code === 'number' && code < 500) break; // permanent client error
+      await sleep(baseDelayMs * 2 ** attempt);
     }
   }
   throw lastError;
