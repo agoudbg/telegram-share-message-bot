@@ -17,9 +17,26 @@ import { loadConfig } from './config.js';
 import { createBotLogger } from './logging.js';
 import type { BotPorts, InputDocumentRef, NormalizedMessage, ResolvedPeer } from './ports.js';
 
+/** Load the first .env found walking up from the cwd (no dependency;
+ *  Node ≥ 20.6 built-in). `pnpm --filter @tbfb/bot start` runs with the
+ *  package directory as cwd while operators usually keep .env at the repo
+ *  root, so a plain '.env' check is not enough. */
+function loadEnvFile(): void {
+  let dir = process.cwd();
+  for (;;) {
+    const candidate = path.join(dir, '.env');
+    if (existsSync(candidate)) {
+      process.loadEnvFile(candidate);
+      return;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return;
+    dir = parent;
+  }
+}
+
 async function main(): Promise<void> {
-  // Load .env when present (no dependency; Node ≥ 20.6 built-in)
-  if (existsSync('.env')) process.loadEnvFile('.env');
+  loadEnvFile();
   const config = loadConfig();
   const mediaDir = path.join(config.dataDir, 'media');
   const logsDir = path.join(config.dataDir, 'logs');
