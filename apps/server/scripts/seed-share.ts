@@ -5,9 +5,11 @@
 //   pnpm build
 //   SANITIZE_SECRET=devsecret DATA_DIR=./data node --experimental-strip-types scripts/seed-share.ts
 //
-// Seeds two shares: "demo-text" (text/entities/forward origins) and
-// "demo-media" (photo/video/round video/voice/sticker/file, hosted from
-// scripts/fixtures/). The TL JSON below mirrors what the bot persists (raw
+// Seeds three shares: "demo-text" (text/entities/forward origins, incl. one
+// nestedForward-flagged message), "demo-media" (photo/video/round video/
+// voice/sticker/file, hosted from scripts/fixtures/) and "demo-unhosted"
+// (hosted:false media: a retrievable video and a non-retrievable photo).
+// The TL JSON below mirrors what the bot persists (raw
 // serialized teleproto messages as received in the bot PM, forwarder id
 // 777000); the API sanitizes it at serve time.
 
@@ -88,6 +90,17 @@ const TEXT_MESSAGES = [
     fwdFrom: fwdFrom({ fromId: { className: 'PeerChat', chatId: { $long: PEERS.group.peerId } } }),
   }),
 ];
+
+// A message whose fwdFrom.date is strictly earlier than the previous one
+// would be flagged nestedForward by the bot heuristic (docs/PLAN.md §2.7);
+// here the flag is set directly in seedShare below
+const NESTED_MESSAGE = makeMessage(7, {
+  message: 'Nested forward (degrades to a non-clickable origin)',
+  fwdFrom: {
+    ...fwdFrom({ fromId: { className: 'PeerUser', userId: { $long: PEERS.user.peerId } } }),
+    date: BASE_DATE - 5000,
+  },
+});
 
 // --- Media share ------------------------------------------------------------
 
@@ -242,7 +255,12 @@ function seedShare(db: ReturnType<typeof openDatabase>, shareId: string, message
   }
   createShare(db, { id: shareId, ownerUserId: FORWARDER });
   messages.forEach((message, index) => {
-    insertMessage(db, { shareId, seq: index + 1, tlJson: JSON.stringify(message) });
+    insertMessage(db, {
+      shareId,
+      seq: index + 1,
+      tlJson: JSON.stringify(message),
+      nestedForward: message === NESTED_MESSAGE,
+    });
   });
   Object.values(PEERS).forEach((peer) => {
     upsertPeer(db, { shareId, ...peer });
@@ -255,7 +273,7 @@ function main(): void {
   const dataDir = process.env.DATA_DIR || './data';
   const db = openDatabase(path.join(dataDir, 'tbfb.db'));
 
-  seedShare(db, 'demo-text', TEXT_MESSAGES);
+  seedShare(db, 'demo-text', [...TEXT_MESSAGES, NESTED_MESSAGE]);
   seedShare(db, 'demo-media', MEDIA_MESSAGES);
   seedShare(db, 'demo-unhosted', UNHOSTED_MESSAGES);
 
