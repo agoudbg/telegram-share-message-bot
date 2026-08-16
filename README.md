@@ -45,6 +45,20 @@ pnpm test
 pnpm lint
 ```
 
+## Building the web app (apps/web)
+
+`apps/web` is a git submodule pointing at our telegram-tt fork
+(`agoudbg/telegram-tt`, branch `share-view`). It uses npm (not pnpm) and
+requires Node ^24.11 / npm ^11 — newer than the rest of the repo:
+
+```bash
+git submodule update --init apps/web
+cd apps/web
+npm ci
+npm run build:share   # production share-view build → dist/
+npm run dev:mocked    # dev server on :1235, share view at /s/<shareId>
+```
+
 ## Running the bot
 
 ```bash

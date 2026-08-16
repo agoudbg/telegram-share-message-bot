@@ -1,3 +1,5 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+  # apps/web is the telegram-tt fork (git submodule, npm-based) — excluded
+  - '!apps/web'
