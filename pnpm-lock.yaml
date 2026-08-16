@@ -32,6 +32,9 @@ importers:
 
   apps/bot:
     dependencies:
+      '@tbfb/server':
+        specifier: workspace:*
+        version: link:../server
       '@tbfb/tlbridge':
         specifier: workspace:*
         version: link:../../packages/tlbridge

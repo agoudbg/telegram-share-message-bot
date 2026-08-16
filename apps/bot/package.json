@@ -16,6 +16,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@tbfb/server": "workspace:*",
     "@tbfb/tlbridge": "workspace:*",
     "teleproto": "~1.228.5"
   },
