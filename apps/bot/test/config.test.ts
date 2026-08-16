@@ -26,7 +26,7 @@ describe('loadConfig', () => {
       miniAppShortName: undefined,
       dataDir: './data',
       mediaHostLimitBytes: 500 * 1024 * 1024,
-      batchSilenceMs: 2000,
+      batchSilenceMs: 10000,
       testServer: false,
     });
   });

@@ -33,14 +33,14 @@ import {
 const WELCOME_TEXT = [
   '👋 Forward me any set of messages and I will pack them into one shareable web page.',
   '',
-  'Just forward multiple messages in a row — when you are done, wait a couple of seconds or tap "✅ Done".',
+  'Just forward multiple messages in a row — when you are done, wait ~10 seconds or tap "✅ Done".',
   'Commands: /help /privacy /cancel /delete',
 ].join('\n');
 
 const HELP_TEXT = [
   'How it works:',
   '1. Forward messages to this chat (albums are kept in order).',
-  '2. After ~2s of silence — or when you tap "✅ Done" — you get a public link.',
+  '2. After ~10s of silence — or when you tap "✅ Done" — you get a public link.',
   '3. Anyone with the link can view the batch in a browser or Mini App.',
   '',
   '/cancel — drop the batch currently being collected',

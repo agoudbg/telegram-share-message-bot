@@ -18,7 +18,7 @@ export interface BotConfig {
 }
 
 const DEFAULT_MEDIA_HOST_LIMIT_BYTES = 500 * 1024 * 1024; // 500MB
-const DEFAULT_BATCH_SILENCE_MS = 2000;
+const DEFAULT_BATCH_SILENCE_MS = 10000;
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];

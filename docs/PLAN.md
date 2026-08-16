@@ -247,7 +247,7 @@ layer is isolated so Postgres can replace it later.
 
 **Commit 7 — `feat(bot): forward batching engine`**
 
-- Consecutive forwards from one user: sliding silence window (default ~2s,
+- Consecutive forwards from one user: sliding silence window (default ~10s,
   configurable) + a "✅ Done, generate link" button to finish immediately +
   /cancel; groupedId albums keep order; each message is serialized +
   heuristically marked + persisted into the in-progress batch
