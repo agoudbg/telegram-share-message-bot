@@ -78,8 +78,9 @@ export class BotApp {
   private readonly fallbackLimiter = new RateLimiter(FALLBACK_RATE_LIMIT_MS);
   private readonly sendQueue = new SendQueue();
   private readonly shareIdFn: () => string;
-  /** chatId → message id of the "Collecting your batch…" prompt (deleted
-   *  once the share is ready or the batch is cancelled) */
+  /** batchId → message id of the "Collecting your batch…" prompt (deleted
+   *  once the share is ready or the batch is cancelled). Keyed by batch, not
+   *  chat: a batch finalizing late must not delete the next batch's prompt. */
   private readonly collectingPrompts = new Map<string, number>();
 
   constructor(private readonly deps: BotAppDeps) {
@@ -121,13 +122,13 @@ export class BotApp {
     // text verbatim, so a forwarded "/cancel" must never hit command routing.
     if (msg.isForward) {
       const outcome = this.batches.handle(msg);
-      if (outcome === 'started') {
+      if (outcome.started) {
         const promptId = await this.deps.ports.sendText(
           msg.chatId,
           '📥 Collecting your batch… Forward more messages, then wait a moment or tap the button.',
           { doneButton: true },
         );
-        if (promptId !== undefined) this.collectingPrompts.set(msg.chatId, promptId);
+        if (promptId !== undefined) this.collectingPrompts.set(outcome.batchId, promptId);
       }
       return;
     }
@@ -173,7 +174,7 @@ export class BotApp {
         const batchId = this.batches.cancel(chatId);
         if (batchId !== null) {
           deleteShare(this.deps.db, batchId, chatId);
-          await this.deleteCollectingPrompt(chatId);
+          await this.deleteCollectingPrompt(batchId, chatId);
           await this.deps.ports.sendText(chatId, '🚮 Batch cancelled.');
         } else {
           await this.deps.ports.sendText(chatId, 'No batch is being collected right now.');
@@ -290,8 +291,8 @@ export class BotApp {
     });
 
     // The share is ready: remove the transient prompt/status messages
-    const promptId = this.collectingPrompts.get(batch.chatId);
-    this.collectingPrompts.delete(batch.chatId);
+    const promptId = this.collectingPrompts.get(batch.id);
+    this.collectingPrompts.delete(batch.id);
     const transientIds = [promptId, statusId].filter((id): id is number => id !== undefined);
     if (transientIds.length > 0) {
       await ports.deleteMessages(batch.chatId, transientIds).catch(() => undefined);
@@ -299,10 +300,10 @@ export class BotApp {
   }
 
   /** Best-effort delete of the "Collecting your batch…" prompt. */
-  private async deleteCollectingPrompt(chatId: string): Promise<void> {
-    const promptId = this.collectingPrompts.get(chatId);
+  private async deleteCollectingPrompt(batchId: string, chatId: string): Promise<void> {
+    const promptId = this.collectingPrompts.get(batchId);
     if (promptId === undefined) return;
-    this.collectingPrompts.delete(chatId);
+    this.collectingPrompts.delete(batchId);
     await this.deps.ports.deleteMessages(chatId, [promptId]).catch(() => undefined);
   }
 }

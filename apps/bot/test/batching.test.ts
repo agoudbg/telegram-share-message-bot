@@ -71,12 +71,12 @@ describe('BatchManager', () => {
     const rec = recorder();
     const manager = new BatchManager({ silenceMs: SILENCE_MS, callbacks: rec.callbacks });
 
-    expect(manager.handle(msg('u1', 1, 100))).toBe('started');
+    expect(manager.handle(msg('u1', 1, 100))).toMatchObject({ started: true });
     await vi.advanceTimersByTimeAsync(SILENCE_MS - 1);
     expect(rec.finalized).toHaveLength(0);
 
     // A new message resets the window
-    expect(manager.handle(msg('u1', 2, 100))).toBe('added');
+    expect(manager.handle(msg('u1', 2, 100))).toMatchObject({ started: false });
     await vi.advanceTimersByTimeAsync(SILENCE_MS - 1);
     expect(rec.finalized).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);

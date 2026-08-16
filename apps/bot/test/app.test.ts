@@ -235,6 +235,55 @@ describe('BotApp', () => {
     expect(texts.at(-1)!.text).toContain('No batch');
   });
 
+  it('a late-finalizing batch never deletes the next batch\'s prompt', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-app-'));
+    dirs.push(dataDir);
+    const db = openDatabase(':memory:');
+    const { ports, deleted } = fakePorts();
+
+    // Hang the "⏳ Processing…" status message so batch 1 is still
+    // finalizing while batch 2 opens
+    const realSend = ports.sendText;
+    let releaseProcessing: (() => void) | null = null;
+    ports.sendText = (chatId, text, opts) => {
+      if (text.startsWith('⏳')) {
+        return new Promise<number | undefined>((resolve) => {
+          void realSend(chatId, text, opts);
+          releaseProcessing = () => resolve(undefined);
+        });
+      }
+      return realSend(chatId, text, opts);
+    };
+
+    let n = 0;
+    const app = new BotApp({
+      config: {
+        publicOrigin: 'https://share.example.com',
+        botUsername: 'mybot',
+        miniAppShortName: 'view',
+        batchSilenceMs: 2000,
+        mediaHostLimitBytes: HOST_LIMIT,
+        dataDir,
+      },
+      db,
+      ports,
+      createShareId: () => `share_${++n}`,
+      sleep: () => Promise.resolve(),
+    });
+
+    await app.handleMessage(forwardMessage('u1', 1, 100)); // prompt id 1
+    const done = app.handleDoneCallback('u1'); // finalize hangs on the status
+    await app.handleMessage(forwardMessage('u1', 2, 100)); // batch 2, prompt id 3
+    releaseProcessing!();
+    await done;
+
+    // Batch 1 cleaned up only its own prompt (id 1), never batch 2's (id 3)
+    const deletedIds = deleted.flatMap((d) => d.messageIds);
+    expect(deletedIds).toContain(1);
+    expect(deletedIds).not.toContain(3);
+    expect(getShare(db, 'share_2')?.status).toBe('pending');
+  });
+
   it("/delete revokes only the owner's share", async () => {
     const { app, db, texts } = await trackedSetup();
     await app.handleMessage(forwardMessage('u1', 1, 100));

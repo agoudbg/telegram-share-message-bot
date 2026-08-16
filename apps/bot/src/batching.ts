@@ -97,8 +97,10 @@ export class BatchManager {
     return this.active.has(chatId);
   }
 
-  /** Add a forwarded message; 'started' when this opened a new batch. */
-  handle(msg: NormalizedMessage): 'started' | 'added' {
+  /** Add a forwarded message; `started` marks a freshly opened batch. The
+   *  batchId lets callers key per-batch state (e.g. the collecting prompt)
+   *  so a late-finalizing batch can't touch the next batch's state. */
+  handle(msg: NormalizedMessage): { started: boolean; batchId: string } {
     const { callbacks } = this.options;
     let batch = this.active.get(msg.chatId);
     const started = batch === undefined;
@@ -128,7 +130,7 @@ export class BatchManager {
     );
 
     this.resetTimer(batch);
-    return started ? 'started' : 'added';
+    return { started, batchId: batch.id };
   }
 
   /** Finish the active batch immediately (the "Done" button). */
