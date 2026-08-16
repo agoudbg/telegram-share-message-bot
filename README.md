@@ -45,6 +45,17 @@ pnpm test
 pnpm lint
 ```
 
+## Running the bot
+
+```bash
+pnpm --filter @tbfb/bot build
+pnpm --filter @tbfb/bot start   # reads .env from the current directory
+```
+
+On first login the bot prints a `SESSION=…` line; copy it into `.env` to
+persist the MTProto StringSession. Runtime data (SQLite, media, logs) lives
+under `DATA_DIR` (default `./data`).
+
 ## Privacy notice
 
 Share pages are public by default: the link is the permission. Message

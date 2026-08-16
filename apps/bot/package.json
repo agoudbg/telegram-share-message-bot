@@ -18,6 +18,7 @@
   "dependencies": {
     "@tbfb/server": "workspace:*",
     "@tbfb/tlbridge": "workspace:*",
+    "big-integer": "^1.6.52",
     "teleproto": "~1.228.5"
   },
   "devDependencies": {

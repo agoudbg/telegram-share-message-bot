@@ -38,6 +38,9 @@ importers:
       '@tbfb/tlbridge':
         specifier: workspace:*
         version: link:../../packages/tlbridge
+      big-integer:
+        specifier: ^1.6.52
+        version: 1.6.52
       teleproto:
         specifier: ~1.228.5
         version: 1.228.5

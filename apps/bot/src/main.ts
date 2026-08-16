@@ -1,45 +1,29 @@
 // teleproto wiring: bot-token MTProto login, StringSession persistence,
-// reconnect + FloodWait absorption (client-side), basic commands.
-// See docs/PLAN.md, Phase 2 Commit 5.
+// reconnect + FloodWait absorption (client-side), event handlers and the
+// real BotPorts implementations. See docs/PLAN.md, Phase 2 Commit 5.
 
-import { existsSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { TelegramClient, events, sessions } from 'teleproto';
+import bigInt from 'big-integer';
+import { Api, TelegramClient, events, sessions } from 'teleproto';
+import { serializeTL } from '@tbfb/tlbridge';
+import type { TLJsonObject } from '@tbfb/tlbridge';
+import { openDatabase } from '@tbfb/server';
 
+import { BotApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createBotLogger } from './logging.js';
-
-const WELCOME_TEXT = [
-  '👋 Forward me any set of messages and I will pack them into one shareable web page.',
-  '',
-  'Just forward multiple messages in a row — when you are done, wait a couple of seconds or tap "✅ Done".',
-  'Commands: /help /privacy /cancel /delete',
-].join('\n');
-
-const HELP_TEXT = [
-  'How it works:',
-  '1. Forward messages to this chat (albums are kept in order).',
-  '2. After ~2s of silence — or when you tap "✅ Done" — you get a public link.',
-  '3. Anyone with the link can view the batch in a browser or Mini App.',
-  '',
-  '/cancel — drop the batch currently being collected',
-  '/delete <shareId> — revoke a share (the page goes 404)',
-].join('\n');
-
-const PRIVACY_TEXT = [
-  'Share pages are PUBLIC by design: anyone with the link can read the full message text and origin names.',
-  'The link id is random and unguessable. Use /delete <shareId> to revoke a share at any time.',
-  'Your identity as the forwarder is never exposed on the page.',
-].join('\n');
+import type { BotPorts, InputDocumentRef, NormalizedMessage, ResolvedPeer } from './ports.js';
 
 async function main(): Promise<void> {
   // Load .env when present (no dependency; Node ≥ 20.6 built-in)
   if (existsSync('.env')) process.loadEnvFile('.env');
   const config = loadConfig();
-
+  const mediaDir = path.join(config.dataDir, 'media');
   const logsDir = path.join(config.dataDir, 'logs');
+  await mkdir(mediaDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
 
   // Unknown-constructor lines are the "time to upgrade teleproto" detector
@@ -53,13 +37,15 @@ async function main(): Promise<void> {
     },
   );
 
+  const db = openDatabase(path.join(config.dataDir, 'tbfb.db'));
+
   const session = new sessions.StringSession(config.session);
   const client = new TelegramClient(session, config.apiId, config.apiHash, {
     connectionRetries: 5,
     retryDelay: 1000,
     autoReconnect: true,
-    // Absorb short FloodWaits inside the library; longer ones are retried at
-    // the call sites
+    // Absorb short FloodWaits inside the library; longer ones are retried by
+    // withRetry at the call sites
     floodSleepThreshold: 60,
     baseLogger: logger,
   });
@@ -75,35 +61,36 @@ async function main(): Promise<void> {
     console.log(`SESSION=${savedSession}`);
   }
 
+  const ports = createTeleprotoPorts(client);
+  const app = new BotApp({
+    config,
+    db,
+    ports,
+    log: (line) => console.log(`[bot] ${line}`),
+  });
+
   client.addEventHandler(
     (event: events.NewMessageEvent) => {
-      void (async () => {
-        if (event.isPrivate !== true) return;
-        const message = event.message;
-        const chatId = message.senderId?.toString();
-        if (chatId === undefined) return;
-        const text = typeof message.message === 'string' ? message.message.trim() : '';
-
-        switch (text.split(/\s+/)[0]?.toLowerCase()) {
-          case '/start':
-            await client.sendMessage(chatId, { message: WELCOME_TEXT });
-            return;
-          case '/help':
-            await client.sendMessage(chatId, { message: HELP_TEXT });
-            return;
-          case '/privacy':
-            await client.sendMessage(chatId, { message: PRIVACY_TEXT });
-            return;
-          default:
-            await client.sendMessage(chatId, {
-              message: 'Forward messages to me to build a share page. See /help.',
-            });
-        }
-      })().catch((error: unknown) => {
+      void app.handleMessage(normalizeMessage(event)).catch((error: unknown) => {
         console.error('[bot] message handler failed:', error);
       });
     },
     new events.NewMessage({ incoming: true }),
+  );
+
+  client.addEventHandler(
+    (event: events.CallbackQueryEvent) => {
+      void (async () => {
+        const chatId = event.senderId?.toString();
+        const done = chatId !== undefined ? await app.handleDoneCallback(chatId) : false;
+        await event.answer({
+          message: done ? undefined : 'No batch is being collected — forward messages first.',
+        });
+      })().catch((error: unknown) => {
+        console.error('[bot] callback handler failed:', error);
+      });
+    },
+    new events.CallbackQuery({ pattern: /^done$/ }),
   );
 
   const shutdown = (): void => {
@@ -111,6 +98,144 @@ async function main(): Promise<void> {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
+
+function createTeleprotoPorts(client: TelegramClient): BotPorts {
+  return {
+    async sendText(chatId, text, opts) {
+      const buttons = buildButtons(opts);
+      const sent = await client.sendMessage(chatId, {
+        message: text,
+        buttons,
+        linkPreview: false,
+      });
+      return sent?.id;
+    },
+
+    async editText(chatId, messageId, text) {
+      await client.editMessage(chatId, { message: messageId, text });
+    },
+
+    async sendDocumentByRef(chatId, ref, caption) {
+      // Re-send by reusing the InputDocument: a server-side copy inside
+      // Telegram, nothing is downloaded or uploaded by us (§2.5)
+      await client.sendFile(chatId, {
+        file: new Api.InputMediaDocument({ id: inputDocumentFromRef(ref) }),
+        caption,
+        forceDocument: true,
+      });
+    },
+
+    async downloadMedia(raw, destAbsPath, onProgress) {
+      await client.downloadMedia(raw as Api.Message, {
+        outputFile: destAbsPath,
+        progressCallback:
+          onProgress === undefined
+            ? undefined
+            : (received, total) => onProgress(Number(received), Number(total)),
+      });
+    },
+
+    async downloadThumb(raw, destAbsPath) {
+      const message = raw as Api.Message;
+      const media = message.media;
+      if (!(media instanceof Api.MessageMediaDocument)) return false;
+      const document = media.document;
+      if (!(document instanceof Api.Document)) return false;
+      const thumbs = document.thumbs ?? [];
+      if (thumbs.length === 0) return false;
+      await client.downloadMedia(message, { outputFile: destAbsPath, thumb: thumbs.length - 1 });
+      return true;
+    },
+
+    async resolvePeer(peerId) {
+      let entity: unknown;
+      try {
+        entity = await client.getEntity(bigInt(peerId));
+      } catch {
+        return null; // unresolvable (e.g. a channel the bot is not in)
+      }
+      if (Array.isArray(entity)) return null;
+      return resolvedPeerFromEntity(entity);
+    },
+
+    async downloadAvatar(peerId, destAbsPath) {
+      const entity: unknown = await client.getEntity(bigInt(peerId));
+      if (Array.isArray(entity)) return false;
+      const result = await client.downloadProfilePhoto(
+        entity as Parameters<TelegramClient['downloadProfilePhoto']>[0],
+        { outputFile: destAbsPath },
+      );
+      return result !== undefined;
+    },
+  };
+}
+
+function resolvedPeerFromEntity(entity: unknown): ResolvedPeer | null {
+  if (entity instanceof Api.User) {
+    const name = [entity.firstName, entity.lastName].filter(Boolean).join(' ').trim();
+    return {
+      kind: 'user',
+      displayName: name !== '' ? name : (entity.username ?? 'User'),
+      username: entity.username ?? undefined,
+    };
+  }
+  if (entity instanceof Api.Channel) {
+    return { kind: 'channel', displayName: entity.title, username: entity.username ?? undefined };
+  }
+  if (entity instanceof Api.Chat) {
+    return { kind: 'chat', displayName: entity.title };
+  }
+  return null;
+}
+
+function inputDocumentFromRef(ref: InputDocumentRef): Api.InputDocument {
+  return new Api.InputDocument({
+    id: bigInt(ref.id),
+    accessHash: bigInt(ref.accessHash),
+    fileReference: Buffer.from(ref.fileReference, 'base64'),
+  });
+}
+
+type SendTextOptions = Parameters<BotPorts['sendText']>[2];
+
+function buildButtons(opts: SendTextOptions): Api.ReplyInlineMarkup | undefined {
+  const buttons: Api.TypeKeyboardButton[] = [];
+  if (opts?.doneButton === true) {
+    buttons.push(
+      new Api.KeyboardButtonCallback({
+        text: '✅ Done — generate link',
+        data: Buffer.from('done'),
+      }),
+    );
+  }
+  if (opts?.webAppButton !== undefined) {
+    buttons.push(
+      new Api.KeyboardButtonWebView({
+        text: opts.webAppButton.text,
+        url: opts.webAppButton.url,
+      }),
+    );
+  }
+  if (buttons.length === 0) return undefined;
+  return new Api.ReplyInlineMarkup({
+    rows: [new Api.KeyboardButtonRow({ buttons })],
+  });
+}
+
+function normalizeMessage(event: events.NewMessageEvent): NormalizedMessage {
+  const message = event.message;
+  const text = typeof message.message === 'string' ? message.message : '';
+  return {
+    chatId: message.senderId?.toString() ?? '',
+    messageId: message.id,
+    text,
+    isPrivate: event.isPrivate === true,
+    isForward: message.fwdFrom !== undefined && message.fwdFrom !== null,
+    groupedId: message.groupedId?.toString(),
+    tlJson: serializeTL(message) as TLJsonObject,
+    raw: message,
+  };
 }
 
 main().catch((error: unknown) => {

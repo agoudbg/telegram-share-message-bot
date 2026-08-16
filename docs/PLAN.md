@@ -263,8 +263,8 @@ layer is isolated so Postgres can replace it later.
 **Commit 9 — `feat(bot): share creation, reply and oversized-file fallback`**
 
 - Finish → random share id → public → reply with: HTTPS link +
-  `t.me/<bot>/<app>?startapp=<id>` direct link + KeyboardButtonWebApp button;
-  /delete revokes
+  `t.me/<bot>/<app>?startapp=<id>` direct link + inline
+  `KeyboardButtonWebView` button; /delete revokes
 - `/start get_<shareId>_<seq>` payload → verify public → re-send the file by
   reusing the InputDocument (FloodWait queue + rate limit)
 - Acceptance: manual end-to-end (API returning JSON suffices before web is
