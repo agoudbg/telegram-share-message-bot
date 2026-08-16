@@ -26,7 +26,8 @@ export interface MediaRow {
   size: number | null;
   path: string | null;
   hosted: boolean;
-  /** InputDocument TL JSON (only for hosted = false) */
+  /** InputDocumentRef JSON ({id, accessHash, fileReference}); null when the
+   *  file is unhosted but cannot be re-sent (no reference from Telegram) */
   reference: string | null;
   width: number | null;
   height: number | null;

@@ -98,15 +98,15 @@ function forwardMessage(
   };
 }
 
-function oversizedDocument(docId: string): TLJsonObject {
+function oversizedDocument(docId: string, withRef = true): TLJsonObject {
   return {
     media: {
       className: 'MessageMediaDocument',
       document: {
         className: 'Document',
         id: { $long: docId },
-        accessHash: { $long: '555' },
-        fileReference: { $bytes: 'aGk=' },
+        accessHash: withRef ? { $long: '555' } : undefined,
+        fileReference: withRef ? { $bytes: 'aGk=' } : undefined,
         size: { $long: '5000' },
         mimeType: 'application/zip',
       },
@@ -353,6 +353,20 @@ describe('BotApp', () => {
     await app.handleMessage(commandMessage('viewer', '/start get_share_1_0'));
     expect(docs).toHaveLength(1);
     expect(texts.at(-1)!.text).toContain('Slow down');
+  });
+
+  it('reports oversized files without a reference as unresendable', async () => {
+    const { app, db, texts, docs } = await trackedSetup();
+    await app.handleMessage(forwardMessage('u1', 1, 100, oversizedDocument('noref', false)));
+    await app.handleDoneCallback('u1');
+
+    const media = getMedia(db, 'noref');
+    expect(media?.hosted).toBe(false);
+    expect(media?.reference).toBeNull();
+
+    await app.handleMessage(commandMessage('viewer', '/start get_share_1_0'));
+    expect(docs).toHaveLength(0);
+    expect(texts.at(-1)!.text).toContain('cannot be re-sent');
   });
 
   it('refuses the fallback for revoked shares', async () => {

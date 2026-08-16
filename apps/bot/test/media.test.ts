@@ -240,6 +240,19 @@ describe('MediaPipeline', () => {
     });
   });
 
+  it('registers oversized files without a reference distinctly', async () => {
+    const { db, pipeline } = await setup(1000);
+    const result = await pipeline.processBatch(
+      batch([{ tlJson: documentMessage('noref', 5000, false) }]),
+    );
+    expect(result).toMatchObject({ unhosted: 1, failed: 0 });
+
+    const row = getMedia(db, 'noref');
+    expect(row?.hosted).toBe(false);
+    expect(row?.path).toBeNull();
+    expect(row?.reference).toBeNull();
+  });
+
   it('dedups repeated media keys without re-downloading', async () => {
     const { db, downloads, pipeline } = await setup(1000);
     const b = batch([{ tlJson: photoMessage('p1') }, { tlJson: photoMessage('p1') }]);

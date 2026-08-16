@@ -220,19 +220,20 @@ export class MediaPipeline {
   ): Promise<'hosted' | 'unhosted' | 'deduped'> {
     const { db, hostLimitBytes } = this.deps;
 
-    // Oversized: register hosted:false + InputDocument reference, no download
+    // Oversized: register hosted:false + InputDocument reference, no
+    // download. Without a reference the file cannot be re-sent — the row is
+    // still registered (reference: null) so the fallback can say so
+    // explicitly instead of misreporting the file as hosted.
     if (info.kind === 'document' && info.size !== undefined && info.size > hostLimitBytes) {
-      if (info.documentRef !== undefined) {
-        insertMediaIfAbsent(db, {
-          key: info.key,
-          hosted: false,
-          reference: JSON.stringify(info.documentRef),
-          size: info.size,
-          mime: info.mime ?? null,
-          width: info.width ?? null,
-          height: info.height ?? null,
-        });
-      }
+      insertMediaIfAbsent(db, {
+        key: info.key,
+        hosted: false,
+        reference: info.documentRef === undefined ? null : JSON.stringify(info.documentRef),
+        size: info.size,
+        mime: info.mime ?? null,
+        width: info.width ?? null,
+        height: info.height ?? null,
+      });
       return 'unhosted';
     }
 

@@ -40,7 +40,7 @@ export const MIGRATIONS: Migration[] = [
         size INTEGER,                     -- bytes
         path TEXT,                        -- file path relative to DATA_DIR
         hosted INTEGER NOT NULL DEFAULT 1,
-        reference TEXT,                   -- InputDocument TL JSON when hosted = 0
+        reference TEXT,                   -- InputDocumentRef JSON ({id, accessHash, fileReference}) when hosted = 0; null when the file cannot be re-sent
         width INTEGER,
         height INTEGER,
         thumb_path TEXT                   -- thumbnail relative to DATA_DIR

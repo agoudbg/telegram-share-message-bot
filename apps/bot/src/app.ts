@@ -231,8 +231,15 @@ export class BotApp {
     }
 
     const media = getMedia(this.deps.db, info.key);
-    if (media === null || media.hosted || media.reference === null) {
+    if (media === null || media.hosted) {
       await this.deps.ports.sendText(chatId, 'That file is hosted — open the share link instead.');
+      return;
+    }
+    if (media.reference === null) {
+      await this.deps.ports.sendText(
+        chatId,
+        'That file cannot be re-sent (Telegram provided no download reference). Open the share link instead.',
+      );
       return;
     }
 
