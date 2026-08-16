@@ -10,8 +10,10 @@ import { Hono } from 'hono';
 import type { TLJsonValue } from '@tbfb/tlbridge';
 
 import type { StorageDatabase } from '../storage/database.js';
-import { getShare, listMessages, listPeers, listShareMedia } from '../storage/repository.js';
-import type { PeerKind, ShareRow } from '../storage/repository.js';
+import { listMessages, listPeers, listShareMedia } from '../storage/repository.js';
+import type { PeerKind } from '../storage/repository.js';
+import { checkShareAccess } from './gate.js';
+import { registerMediaRoutes } from './media.js';
 import { createShareSanitizer, sanitizeMediaKey } from './sanitize.js';
 
 export interface ShareResponse {
@@ -59,18 +61,8 @@ export interface ShareMediaEntry {
 export interface ServerAppDeps {
   db: StorageDatabase;
   sanitizeSecret: string;
-}
-
-/** Access gate shared by every share-scoped route: pending shares must not
- *  be distinguishable from unknown ones. */
-export function checkShareAccess(
-  db: StorageDatabase,
-  shareId: string,
-): ShareRow | 'not_found' | 'revoked' {
-  const share = getShare(db, shareId);
-  if (share === null || share.status === 'pending') return 'not_found';
-  if (share.status === 'revoked') return 'revoked';
-  return share;
+  /** Base directory holding media/ (media rows store paths relative to it) */
+  dataDir: string;
 }
 
 function mediaUrl(shareId: string, fakeKey: string): string {
@@ -132,6 +124,8 @@ export function createServerApp(deps: ServerAppDeps): Hono {
     };
     return c.json(response);
   });
+
+  registerMediaRoutes(app, deps);
 
   return app;
 }

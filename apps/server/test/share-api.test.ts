@@ -122,7 +122,7 @@ function seedShare(db: StorageDatabase, shareId: string): void {
 function setup() {
   const db = openDatabase(':memory:');
   seedShare(db, SHARE_ID);
-  const app = createServerApp({ db, sanitizeSecret: SECRET });
+  const app = createServerApp({ db, sanitizeSecret: SECRET, dataDir: '/nonexistent' });
   return { db, app };
 }
 
@@ -223,7 +223,7 @@ describe('GET /api/shares/:id', () => {
     const db = openDatabase(':memory:');
     seedShare(db, 'share-one');
     seedShare(db, 'share-two');
-    const app = createServerApp({ db, sanitizeSecret: SECRET });
+    const app = createServerApp({ db, sanitizeSecret: SECRET, dataDir: '/nonexistent' });
 
     const one = (await fetchShare(app, 'share-one')).body;
     const two = (await fetchShare(app, 'share-two')).body;

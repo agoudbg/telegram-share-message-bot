@@ -31,7 +31,11 @@ function main(): void {
   loadEnvFile();
   const config = loadServerConfig();
   const db = openDatabase(path.join(config.dataDir, 'tbfb.db'));
-  const app = createServerApp({ db, sanitizeSecret: config.sanitizeSecret });
+  const app = createServerApp({
+    db,
+    sanitizeSecret: config.sanitizeSecret,
+    dataDir: config.dataDir,
+  });
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`Share server listening on :${info.port} (data dir: ${config.dataDir})`);
