@@ -310,14 +310,15 @@ layer is isolated so Postgres can replace it later.
 
 - New code concentrated in `apps/web/src/api/share/`: tlbridge hydrator
   wired in, fetchMessages replaced by calls to `/api/shares/:id`,
-  updateUsers/updateChats inject origin peers (avatars point at `/media/...`),
-  a virtual read-only chat
+  updateUsers/updateChats inject origin peers, a virtual read-only chat
 - Acceptance: the page renders a test batch (text first)
 
 **Commit 14 — `feat(web): media blobUrl short-circuit`**
 
 - Fill `blobUrl`/`thumbnail.dataUri` on ApiPhoto/ApiVideo/ApiDocument →
-  `/media/:shareId/:key`; minimal patches to skip mediaLoader where needed
+  `/media/:shareId/:key`; minimal patches to skip mediaLoader where needed;
+  origin-peer avatars point at `/media/...` (moved here from commit 13: the
+  mechanism depends on this commit's media URL wiring)
 - Acceptance: images/videos/stickers/voice/round video all display/play
 
 **Commit 15 — `feat(web): "View in Telegram" placeholder for unhosted media`**
