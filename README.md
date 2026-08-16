@@ -56,6 +56,15 @@ On first login the bot prints a `SESSION=…` line; copy it into `.env` to
 persist the MTProto StringSession. Runtime data (SQLite, media, logs) lives
 under `DATA_DIR` (default `./data`).
 
+### Telegram test servers
+
+Set `TELEGRAM_TEST_SERVER=1` to connect to the Telegram test DCs — useful
+for Mini App development (test DCs allow plain-HTTP origins, so
+`PUBLIC_ORIGIN` can be `http://localhost:3000`). The test environment is
+fully separate from production: create a dedicated bot with the
+test-environment BotFather, and keep `SESSION` and `DATA_DIR` separate as
+well.
+
 ## Privacy notice
 
 Share pages are public by default: the link is the permission. Message

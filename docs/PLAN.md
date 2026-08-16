@@ -169,6 +169,10 @@ previous message's (`next < prev`) → mark `nestedForward` → render it in
   avatars; hidden users have names only
 - Forward origins: raw `fwdFrom` fields map one-to-one onto what WebA's
   `buildApiMessageForwardInfo` reads — a natural fit
+- `TELEGRAM_TEST_SERVER=1` points the bot at the Telegram test DCs
+  (teleproto `testServers` flag) for development — a fully separate
+  environment with its own bot token, session and data directory; test DCs
+  allow plain-HTTP web origins, which simplifies Mini App testing
 
 ## 3. Overall architecture
 

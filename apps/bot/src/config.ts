@@ -13,6 +13,8 @@ export interface BotConfig {
   dataDir: string;
   mediaHostLimitBytes: number;
   batchSilenceMs: number;
+  /** Connect to the Telegram test DCs instead of production (TELEGRAM_TEST_SERVER) */
+  testServer: boolean;
 }
 
 const DEFAULT_MEDIA_HOST_LIMIT_BYTES = 500 * 1024 * 1024; // 500MB
@@ -52,5 +54,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     dataDir: env.DATA_DIR || './data',
     mediaHostLimitBytes: optionalInt(env, 'MEDIA_HOST_LIMIT_BYTES', DEFAULT_MEDIA_HOST_LIMIT_BYTES),
     batchSilenceMs: optionalInt(env, 'BATCH_SILENCE_MS', DEFAULT_BATCH_SILENCE_MS),
+    testServer: /^(1|true|yes)$/i.test(env.TELEGRAM_TEST_SERVER ?? ''),
   };
 }

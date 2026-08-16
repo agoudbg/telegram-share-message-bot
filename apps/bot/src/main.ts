@@ -44,6 +44,9 @@ async function main(): Promise<void> {
     connectionRetries: 5,
     retryDelay: 1000,
     autoReconnect: true,
+    // Telegram test DCs (TELEGRAM_TEST_SERVER=1): separate environment — use a
+    // test-env bot token and a separate SESSION/DATA_DIR (see .env.example)
+    testServers: config.testServer,
     // Absorb short FloodWaits inside the library; longer ones are retried by
     // withRetry at the call sites
     floodSleepThreshold: 60,
@@ -51,7 +54,7 @@ async function main(): Promise<void> {
   });
 
   await client.start({ botAuthToken: config.botToken });
-  console.log('Bot connected.');
+  console.log(`Bot connected (${config.testServer ? 'Telegram TEST servers' : 'production'}).`);
 
   // StringSession persistence: the session only changes on first login —
   // print it once so the operator can store it in SESSION (.env.example)
