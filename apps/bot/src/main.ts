@@ -170,13 +170,27 @@ function createTeleprotoPorts(client: TelegramClient): BotPorts {
     async downloadThumb(raw, destAbsPath) {
       const message = raw as Api.Message;
       const media = message.media;
-      if (!(media instanceof Api.MessageMediaDocument)) return false;
-      const document = media.document;
-      if (!(document instanceof Api.Document)) return false;
-      const thumbs = document.thumbs ?? [];
-      if (thumbs.length === 0) return false;
-      await client.downloadMedia(message, { outputFile: destAbsPath, thumb: thumbs.length - 1 });
-      return true;
+      if (media instanceof Api.MessageMediaDocument) {
+        const document = media.document;
+        if (!(document instanceof Api.Document)) return false;
+        const thumbs = document.thumbs ?? [];
+        if (thumbs.length === 0) return false;
+        await client.downloadMedia(message, { outputFile: destAbsPath, thumb: thumbs.length - 1 });
+        return true;
+      }
+      if (media instanceof Api.MessageMediaPhoto) {
+        if (!(media.photo instanceof Api.Photo)) return false;
+        // For photos `thumb` indexes photo.sizes (the last one is the full
+        // image): take a small size so the share page gets a real thumbnail
+        const sizes = media.photo.sizes ?? [];
+        if (sizes.length < 2) return false;
+        await client.downloadMedia(message, {
+          outputFile: destAbsPath,
+          thumb: Math.min(1, sizes.length - 1),
+        });
+        return true;
+      }
+      return false;
     },
 
     async resolvePeer(peerId) {
