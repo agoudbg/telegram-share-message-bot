@@ -141,6 +141,27 @@ function toMessage(row: any): MessageRow {
   };
 }
 
+/** Rewrite the seqs of a share's messages to 0..n-1 following the given
+ *  order of the *current* seqs. Rows are inserted in arrival order, but
+ *  albums are re-sorted by message id at finalize (docs/PLAN.md §2.4) —
+ *  this persists that final presentation order so `ORDER BY seq` serves it.
+ *  Runs in one transaction; seqs are shifted out of the way first to avoid
+ *  primary-key collisions. */
+export function rewriteMessageSeqs(
+  db: StorageDatabase,
+  shareId: string,
+  oldSeqsInNewOrder: number[],
+): void {
+  const SHIFT = 1_000_000_000;
+  db.transaction(() => {
+    db.prepare(`UPDATE messages SET seq = seq + ? WHERE share_id = ?`).run(SHIFT, shareId);
+    const stmt = db.prepare(`UPDATE messages SET seq = ? WHERE share_id = ? AND seq = ?`);
+    oldSeqsInNewOrder.forEach((oldSeq, newSeq) => {
+      stmt.run(newSeq, shareId, oldSeq + SHIFT);
+    });
+  })();
+}
+
 /** Insert only when the key is new (dedup): returns true when inserted. */
 export function insertMediaIfAbsent(
   db: StorageDatabase,

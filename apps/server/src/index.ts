@@ -16,6 +16,7 @@ export {
   listMessages,
   listPeers,
   revokeShare,
+  rewriteMessageSeqs,
   upsertPeer,
 } from './storage/repository.js';
 export type {

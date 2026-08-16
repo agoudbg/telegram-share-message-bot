@@ -13,6 +13,7 @@ import {
   listMessages,
   listPeers,
   revokeShare,
+  rewriteMessageSeqs,
   upsertPeer,
 } from '../src/storage/repository.js';
 
@@ -93,6 +94,22 @@ describe('messages', () => {
     createShare(db, { id: 's1', ownerUserId: '42' });
     insertMessage(db, { shareId: 's1', seq: 0, tlJson: '{}' });
     expect(() => insertMessage(db, { shareId: 's1', seq: 0, tlJson: '{}' })).toThrow();
+  });
+
+  it('rewrites seqs into the finalized presentation order', () => {
+    const db = freshDb();
+    createShare(db, { id: 's1', ownerUserId: '42' });
+    insertMessage(db, { shareId: 's1', seq: 0, tlJson: '{"id":5}' });
+    insertMessage(db, { shareId: 's1', seq: 1, tlJson: '{"id":3}', nestedForward: true });
+    insertMessage(db, { shareId: 's1', seq: 2, tlJson: '{"id":9}' });
+
+    rewriteMessageSeqs(db, 's1', [1, 0, 2]);
+
+    const messages = listMessages(db, 's1');
+    expect(messages.map((m) => m.tlJson)).toEqual(['{"id":3}', '{"id":5}', '{"id":9}']);
+    expect(messages.map((m) => m.seq)).toEqual([0, 1, 2]);
+    // nested flags travel with their rows
+    expect(messages.map((m) => m.nestedForward)).toEqual([true, false, false]);
   });
 });
 

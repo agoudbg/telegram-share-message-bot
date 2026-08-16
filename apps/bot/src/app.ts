@@ -14,6 +14,7 @@ import {
   getShare,
   insertMessage,
   revokeShare,
+  rewriteMessageSeqs,
 } from '@tbfb/server';
 
 import type { Batch } from './batching.js';
@@ -244,6 +245,18 @@ export class BotApp {
     if (batch.items.length === 0) {
       deleteShare(this.deps.db, batch.id, batch.chatId);
       return;
+    }
+
+    // Persist the album re-ordering (docs/PLAN.md §2.4): rows were inserted
+    // in arrival order, so make seq match the final presentation order —
+    // otherwise the share page would still serve arrival order.
+    const orderChanged = batch.items.some((item, index) => item.seq !== index);
+    if (orderChanged) {
+      rewriteMessageSeqs(
+        this.deps.db,
+        batch.id,
+        batch.items.map((item) => item.seq),
+      );
     }
 
     const statusId = await ports.sendText(

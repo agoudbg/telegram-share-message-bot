@@ -75,6 +75,7 @@ function forwardMessage(
   fwdDate: number,
   tlExtra?: TLJsonObject,
   text = '',
+  groupedId?: string,
 ): NormalizedMessage {
   return {
     chatId,
@@ -82,6 +83,7 @@ function forwardMessage(
     text,
     isPrivate: true,
     isForward: true,
+    groupedId,
     tlJson: {
       className: 'Message',
       id,
@@ -197,6 +199,19 @@ describe('BotApp', () => {
     // Only the collecting prompt was sent — no command replies at all.
     expect(texts).toHaveLength(1);
     expect(texts[0]!.text).toContain('Collecting');
+  });
+
+  it('persists album ordering so the share serves message-id order', async () => {
+    const { app, db } = await trackedSetup();
+    // Album arriving out of order: message id 5 before message id 3
+    await app.handleMessage(forwardMessage('u1', 5, 100, undefined, '', 'g1'));
+    await app.handleMessage(forwardMessage('u1', 3, 100, undefined, '', 'g1'));
+    await app.handleDoneCallback('u1');
+
+    const messages = listMessages(db, 'share_1');
+    const ids = messages.map((m) => (JSON.parse(m.tlJson) as { id: number }).id);
+    expect(ids).toEqual([3, 5]);
+    expect(messages.map((m) => m.seq)).toEqual([0, 1]);
   });
 
   it('ignores non-forward, non-command messages with a hint', async () => {
