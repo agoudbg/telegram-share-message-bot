@@ -21,6 +21,14 @@ import {
 const SECRET = 'test-secret';
 const SHARE_ID = 'share-a';
 const CONTENT = 'hello world'; // 11 bytes
+/** JPEG magic + payload, so the thumb mime sniffing recognizes it */
+const THUMB = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('thumb!')]);
+const WEBP_THUMB = Buffer.concat([
+  Buffer.from('RIFF'),
+  Buffer.from([0, 0, 0, 0]),
+  Buffer.from('WEBP'),
+  Buffer.from('sticker'),
+]);
 
 const dirs: string[] = [];
 
@@ -40,7 +48,7 @@ async function setup() {
   });
   linkMediaToShare(db, SHARE_ID, '12345');
   await writeFile(path.join(dataDir, 'media', '12345'), CONTENT);
-  await writeFile(path.join(dataDir, 'media', '12345_thumb.jpg'), 'thumb!');
+  await writeFile(path.join(dataDir, 'media', '12345_thumb.jpg'), THUMB);
   finalizeShare(db, SHARE_ID);
 
   const app = createServerApp({ db, sanitizeSecret: SECRET, dataDir });
@@ -82,6 +90,14 @@ describe('GET /media/:shareId/:key', () => {
     expect(suffix.status).toBe(206);
     expect(await suffix.text()).toBe('world');
 
+    // A suffix longer than the file yields the whole file (RFC 7233 §5.3.4)
+    const hugeSuffix = await app.request(url, {
+      headers: { Range: 'bytes=-99999999999999999999' },
+    });
+    expect(hugeSuffix.status).toBe(206);
+    expect(hugeSuffix.headers.get('Content-Range')).toBe(`bytes 0-10/${CONTENT.length}`);
+    expect(await hugeSuffix.text()).toBe(CONTENT);
+
     // End beyond the file clamps to the last byte
     const clamped = await app.request(url, { headers: { Range: 'bytes=9-100' } });
     expect(clamped.status).toBe(206);
@@ -96,14 +112,33 @@ describe('GET /media/:shareId/:key', () => {
     expect(res.headers.get('Content-Range')).toBe(`bytes */${CONTENT.length}`);
   });
 
-  it('serves thumbnails via ?thumb=1 and 404s when there is none', async () => {
-    const { db, app, url } = await setup();
+  it('serves thumbnails via ?thumb=1 with the sniffed image type', async () => {
+    const { db, app, dataDir, url } = await setup();
 
     const thumb = await app.request(`${url}?thumb=1`);
     expect(thumb.status).toBe(200);
     expect(thumb.headers.get('Content-Type')).toBe('image/jpeg');
-    expect(await thumb.text()).toBe('thumb!');
+    expect(Buffer.from(await thumb.arrayBuffer()).equals(THUMB)).toBe(true);
 
+    // Sticker-style WebP thumbnails are detected too
+    insertMediaIfAbsent(db, {
+      key: '4242',
+      hosted: true,
+      path: 'media/12345',
+      mime: 'image/webp',
+      thumbPath: 'media/4242_thumb',
+    });
+    linkMediaToShare(db, SHARE_ID, '4242');
+    await writeFile(path.join(dataDir, 'media', '4242_thumb'), WEBP_THUMB);
+    const fake4242 = sanitizeMediaKey(createShareSanitizer(SECRET, SHARE_ID), '4242');
+    const webp = await app.request(`/media/${SHARE_ID}/${fake4242}?thumb=1`);
+    expect(webp.status).toBe(200);
+    expect(webp.headers.get('Content-Type')).toBe('image/webp');
+    expect(Buffer.from(await webp.arrayBuffer()).equals(WEBP_THUMB)).toBe(true);
+  });
+
+  it('404s ?thumb=1 when the media has no thumbnail', async () => {
+    const { db, app } = await setup();
     insertMediaIfAbsent(db, { key: '999', hosted: true, path: 'media/12345', mime: 'text/plain' });
     linkMediaToShare(db, SHARE_ID, '999');
     const fake999 = sanitizeMediaKey(createShareSanitizer(SECRET, SHARE_ID), '999');

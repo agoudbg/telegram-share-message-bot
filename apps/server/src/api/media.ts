@@ -8,7 +8,7 @@
 // serves the extracted thumbnail instead of the file itself.
 
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
@@ -48,10 +48,11 @@ export function parseRangeHeader(
   if (startRaw === '' && endRaw === '') return 'invalid';
 
   if (startRaw === '') {
-    // Suffix range: the last N bytes
+    // Suffix range: the last N bytes. When N exceeds the representation
+    // length the entire representation is used (RFC 7233 §5.3.4)
     const suffix = Number(endRaw);
-    if (suffix <= 0 || suffix > Number.MAX_SAFE_INTEGER) return 'invalid';
-    return { start: Math.max(0, size - suffix), end: size - 1 };
+    if (suffix <= 0) return 'invalid';
+    return { start: Math.max(0, size - Math.min(suffix, size)), end: size - 1 };
   }
 
   const start = Number(startRaw);
@@ -90,8 +91,14 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
       return c.json({ error: 'not_found' }, 404); // registered but missing on disk
     }
 
+    // Thumbnails have no stored mime; document thumbs can be WebP (stickers)
+    // rather than JPEG, so sniff the magic bytes instead of hardcoding
+    const contentType = thumb
+      ? ((await sniffImageMime(absPath)) ?? 'application/octet-stream')
+      : (media.mime ?? 'application/octet-stream');
+
     const headers: Record<string, string> = {
-      'Content-Type': thumb ? 'image/jpeg' : (media.mime ?? 'application/octet-stream'),
+      'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
       'Cache-Control': CACHE_CONTROL,
     };
@@ -114,4 +121,29 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     const stream = Readable.toWeb(createReadStream(absPath, { start, end })) as ReadableStream;
     return c.body(stream, status, headers);
   });
+}
+
+/** Detect the image type of a thumbnail from its magic bytes; null when
+ *  unrecognized (caller falls back to application/octet-stream). */
+async function sniffImageMime(file: string): Promise<string | null> {
+  const handle = await open(file, 'r');
+  try {
+    const buf = Buffer.alloc(12);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    if (bytesRead >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    if (
+      bytesRead >= 12 &&
+      buf.toString('ascii', 0, 4) === 'RIFF' &&
+      buf.toString('ascii', 8, 12) === 'WEBP'
+    ) {
+      return 'image/webp';
+    }
+    if (bytesRead >= 8 && buf.readUInt32BE(0) === 0x89504e47) return 'image/png';
+    if (bytesRead >= 6 && buf.toString('ascii', 0, 3) === 'GIF') return 'image/gif';
+    return null;
+  } finally {
+    await handle.close();
+  }
 }
