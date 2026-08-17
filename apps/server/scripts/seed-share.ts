@@ -129,6 +129,9 @@ const MEDIA = {
     id: '800005', file: 'sticker.webp', mime: 'image/webp', width: 512, height: 512,
   },
   file: { id: '800006', file: 'hello.txt', mime: 'text/plain' },
+  photo2: {
+    id: '800009', file: 'photo.png', mime: 'image/png', width: 640, height: 360,
+  },
 } satisfies Record<string, MediaFixture>;
 
 function photoMedia(photo: MediaFixture) {
@@ -249,6 +252,192 @@ const UNHOSTED_MESSAGES = [
   }),
 ];
 
+// --- Type-coverage share (commit 18 matrix) ---------------------------------
+
+function textWithEntities(text: string, entities: unknown[] = []) {
+  return { className: 'TextWithEntities', text, entities };
+}
+
+function pollAnswer(text: string, optionB64: string) {
+  return {
+    className: 'PollAnswer',
+    text: textWithEntities(text),
+    option: { $bytes: optionB64 },
+  };
+}
+
+function messagePoll(question: string, answers: string[]) {
+  return {
+    className: 'MessageMediaPoll',
+    poll: {
+      className: 'Poll',
+      id: { $long: '900011' },
+      question: textWithEntities(question),
+      answers: answers.map((text, i) => pollAnswer(text, Buffer.from([i]).toString('base64'))),
+      hash: { $long: '1' },
+    },
+    results: {
+      className: 'PollResults',
+      results: [],
+      totalVoters: 0,
+    },
+  };
+}
+
+function messageGeo(lng: number, lat: number) {
+  return {
+    className: 'MessageMediaGeo',
+    geo: {
+      className: 'GeoPoint',
+      long: lng,
+      lat,
+      accessHash: { $long: '1' },
+      accuracyRadius: 100,
+    },
+  };
+}
+
+function messageContact(firstName: string, lastName: string, phoneNumber: string) {
+  return {
+    className: 'MessageMediaContact',
+    phoneNumber,
+    firstName,
+    lastName,
+    vcard: '',
+    userId: { $long: '111111' },
+  };
+}
+
+const ALBUM_GROUP_ID = '777000777';
+
+const TYPES_MESSAGES = [
+  makeMessage(1, { message: 'Plain text message' }),
+  makeMessage(2, {
+    message: 'Bold, italic, code and a link',
+    entities: [
+      { className: 'MessageEntityBold', offset: 0, length: 4 },
+      { className: 'MessageEntityItalic', offset: 6, length: 6 },
+      { className: 'MessageEntityCode', offset: 14, length: 4 },
+      { className: 'MessageEntityTextUrl', offset: 24, length: 4, url: 'https://telegram.org' },
+    ],
+  }),
+  makeMessage(3, { message: 'A photo with caption', media: photoMedia(MEDIA.photo) }),
+  // Album: two photos sharing one groupedId
+  makeMessage(4, {
+    media: photoMedia(MEDIA.photo2),
+    groupedId: { $long: ALBUM_GROUP_ID },
+  }),
+  makeMessage(5, {
+    media: photoMedia(MEDIA.photo),
+    groupedId: { $long: ALBUM_GROUP_ID },
+  }),
+  makeMessage(6, {
+    message: 'A video',
+    media: documentMedia(MEDIA.video, [
+      {
+        className: 'DocumentAttributeVideo', w: 640, h: 360, duration: 3, supportsStreaming: true,
+      },
+      { className: 'DocumentAttributeFilename', fileName: 'video.mp4' },
+    ], VIDEO_THUMBS),
+  }),
+  makeMessage(7, {
+    media: documentMedia(MEDIA.file, [
+      { className: 'DocumentAttributeFilename', fileName: 'hello.txt' },
+    ]),
+  }),
+  makeMessage(8, {
+    media: documentMedia(MEDIA.sticker, [
+      { className: 'DocumentAttributeImageSize', w: 512, h: 512 },
+      {
+        className: 'DocumentAttributeSticker',
+        alt: '😀',
+        stickerset: { className: 'InputStickerSetID', id: { $long: '900001' }, accessHash: { $long: '1' } },
+      },
+    ]),
+  }),
+  makeMessage(9, {
+    media: documentMedia(MEDIA.voice, [
+      { className: 'DocumentAttributeAudio', duration: 2, voice: true, waveform: { $bytes: WAVEFORM } },
+    ]),
+  }),
+  makeMessage(10, {
+    media: documentMedia(MEDIA.round, [
+      {
+        className: 'DocumentAttributeVideo', w: 240, h: 240, duration: 2, roundMessage: true,
+      },
+    ]),
+  }),
+  makeMessage(11, {
+    media: messagePoll('Best framework?', ['Vue', 'React', 'Svelte']),
+  }),
+  makeMessage(12, {
+    media: messageGeo(37.7749, 122.4194),
+  }),
+  makeMessage(13, {
+    media: messageContact('Alice', 'Example', '+1 555 0100'),
+  }),
+  makeMessage(14, {
+    message: 'Replying to the first message',
+    replyTo: { className: 'MessageReplyHeader', replyToMsgId: 1 },
+  }),
+  makeMessage(15, {
+    className: 'MessageService',
+    id: 900,
+    date: BASE_DATE + 900,
+    peerId: forwarderPeer(),
+    fromId: forwarderPeer(),
+    action: { className: 'MessageActionChatEditTitle', title: 'Group renamed to Test' },
+  }),
+  makeMessage(16, {
+    message: 'Forwarded from a user',
+    fwdFrom: fwdFrom({ fromId: { className: 'PeerUser', userId: { $long: PEERS.user.peerId } } }),
+  }),
+  makeMessage(17, {
+    message: 'Forwarded from a channel',
+    fwdFrom: fwdFrom({
+      fromId: { className: 'PeerChannel', channelId: { $long: PEERS.channel.peerId } },
+      channelPost: 42,
+    }),
+  }),
+  makeMessage(18, {
+    message: 'Forwarded from a hidden user',
+    fwdFrom: fwdFrom({ fromName: 'Hidden User' }),
+  }),
+  makeMessage(19, {
+    message: 'Forwarded from a group',
+    fwdFrom: fwdFrom({ fromId: { className: 'PeerChat', chatId: { $long: PEERS.group.peerId } } }),
+  }),
+  makeMessage(20, {
+    message: 'Oversized file placeholder',
+    media: documentMedia(UNHOSTED.video, [
+      {
+        className: 'DocumentAttributeVideo', w: 640, h: 360, duration: 3, supportsStreaming: true,
+      },
+      { className: 'DocumentAttributeFilename', fileName: 'video.mp4' },
+    ], VIDEO_THUMBS),
+  }),
+];
+
+const TYPE_BATCHES: Record<string, unknown[]> = {
+  text: [TYPES_MESSAGES[0]],
+  entities: [TYPES_MESSAGES[1]],
+  photo: [TYPES_MESSAGES[2]],
+  album: TYPES_MESSAGES.slice(3, 5),
+  video: [TYPES_MESSAGES[5]],
+  file: [TYPES_MESSAGES[6]],
+  sticker: [TYPES_MESSAGES[7]],
+  voice: [TYPES_MESSAGES[8]],
+  round: [TYPES_MESSAGES[9]],
+  poll: [TYPES_MESSAGES[10]],
+  location: [TYPES_MESSAGES[11]],
+  contact: [TYPES_MESSAGES[12]],
+  reply: [TYPES_MESSAGES[0], TYPES_MESSAGES[13]],
+  service: [TYPES_MESSAGES[14]],
+  forwards: TYPES_MESSAGES.slice(15, 19),
+  nested: [NESTED_MESSAGE],
+  unhosted: [TYPES_MESSAGES[19]],
+};
+
 function seedShare(db: ReturnType<typeof openDatabase>, shareId: string, messages: unknown[]): void {
   if (getShare(db, shareId) !== null) {
     deleteShare(db, shareId, FORWARDER);
@@ -276,31 +465,18 @@ function main(): void {
   seedShare(db, 'demo-text', [...TEXT_MESSAGES, NESTED_MESSAGE]);
   seedShare(db, 'demo-media', MEDIA_MESSAGES);
   seedShare(db, 'demo-unhosted', UNHOSTED_MESSAGES);
-
-  // Unhosted rows: flagged hosted:false, no file on disk; the video keeps its
-  // InputDocument reference (retrievable), the photo does not
-  insertMediaIfAbsent(db, {
-    key: UNHOSTED.video.id,
-    mime: UNHOSTED.video.mime,
-    size: 734003200,
-    hosted: false,
-    reference: FAKE_REFERENCE,
-    width: UNHOSTED.video.width,
-    height: UNHOSTED.video.height,
+  Object.entries(TYPE_BATCHES).forEach(([type, messages]) => {
+    seedShare(db, `demo-type-${type}`, messages);
   });
-  linkMediaToShare(db, 'demo-unhosted', UNHOSTED.video.id);
-  insertMediaIfAbsent(db, {
-    key: UNHOSTED.photo.id,
-    mime: UNHOSTED.photo.mime,
-    size: 524288000,
-    hosted: false,
-    width: UNHOSTED.photo.width,
-    height: UNHOSTED.photo.height,
-  });
-  linkMediaToShare(db, 'demo-unhosted', UNHOSTED.photo.id);
+  // Seed the aggregate matrix last: repeated media keys are linked to all
+  // per-type shares above, and SQLite's cascade from deleteShare must not
+  // remove those media rows after they have been linked
+  seedShare(db, 'demo-types', TYPES_MESSAGES);
 
   const mediaDir = path.join(dataDir, 'media');
   mkdirSync(mediaDir, { recursive: true });
+
+  // Hosted fixtures (photo.png doubles as photo2)
   Object.values(MEDIA).forEach((fixture) => {
     for (const file of [fixture.file, fixture.thumbFile]) {
       if (file) copyFileSync(path.join(FIXTURES_DIR, file), path.join(mediaDir, file));
@@ -316,7 +492,35 @@ function main(): void {
       thumbPath: fixture.thumbFile ? `media/${fixture.thumbFile}` : undefined,
     });
     linkMediaToShare(db, 'demo-media', fixture.id);
+    linkMediaToShare(db, 'demo-types', fixture.id);
+    for (const type of ['photo', 'album', 'video', 'file', 'sticker', 'voice', 'round']) {
+      linkMediaToShare(db, `demo-type-${type}`, fixture.id);
+    }
   });
+
+  // Unhosted rows: flagged hosted:false, no file on disk; the video keeps its
+  // InputDocument reference (retrievable), the photo does not
+  insertMediaIfAbsent(db, {
+    key: UNHOSTED.video.id,
+    mime: UNHOSTED.video.mime,
+    size: 734003200,
+    hosted: false,
+    reference: FAKE_REFERENCE,
+    width: UNHOSTED.video.width,
+    height: UNHOSTED.video.height,
+  });
+  linkMediaToShare(db, 'demo-unhosted', UNHOSTED.video.id);
+  linkMediaToShare(db, 'demo-types', UNHOSTED.video.id);
+  linkMediaToShare(db, 'demo-type-unhosted', UNHOSTED.video.id);
+  insertMediaIfAbsent(db, {
+    key: UNHOSTED.photo.id,
+    mime: UNHOSTED.photo.mime,
+    size: 524288000,
+    hosted: false,
+    width: UNHOSTED.photo.width,
+    height: UNHOSTED.photo.height,
+  });
+  linkMediaToShare(db, 'demo-unhosted', UNHOSTED.photo.id);
 }
 
 main();
