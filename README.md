@@ -1,91 +1,193 @@
 # telegram-batch-forwarding-bot
 
-Forward multiple messages to the bot and get a publicly shareable web page
-(also a Telegram Mini App) that reproduces the batch as faithfully as
-possible using the official Telegram WebA (telegram-tt) rendering pipeline —
-the equivalent of QQ/WeChat "batch forward chat history".
+Forward multiple Telegram messages to a bot and receive one public,
+read-only share page. The page also opens as a Telegram Mini App and renders
+the batch through the official Telegram WebA (`telegram-tt`) message
+pipeline.
+
+## Features
+
+- Collects consecutive forwards into a batch with a configurable silence
+  window and an immediate **Done** button.
+- Preserves raw MTProto TL data in SQLite instead of converting every
+  Telegram message type into a custom schema.
+- Renders text, entities, albums, media, stickers, voice messages, round
+  videos, polls, locations, contacts, replies, forwards and service messages
+  through WebA.
+- Hosts media with HTTP Range support. Files above the configured threshold
+  use a **View in Telegram** fallback that re-sends the original document
+  reference without downloading and uploading it again.
+- Serves public pages with share-scoped fake ids and no media access hashes,
+  file references or Telegram data-center ids.
+- Revokes shares through `/delete <shareId>`.
 
 ## Architecture
 
+```text
+User forwards messages
+  -> teleproto bot session (MTProto)
+  -> raw TL JSON + media in SQLite/files
+  -> sanitized share API
+  -> telegram-tt hydrates TL constructors
+  -> official buildApiMessage/render pipeline
 ```
-User forwards N messages → teleproto (bot session, direct MTProto)
-  → batching → raw TL JSON into SQLite + media hosted on disk
-  → reply with share link / Mini App direct link
-Browser/Mini App → telegram-tt fork (mocked)
-  → TL JSON hydrated back into GramJs instances → buildApiMessage
-  → official rendering pipeline
-```
 
-- `apps/bot` — teleproto bot: MTProto login, updates, batching, media
-  download, share creation, oversized-file fallback delivery
-- `apps/server` — HTTP: share data API (sanitized TL JSON) + media streaming
-  endpoint + serves the web build
-- `apps/web` — telegram-tt fork (git submodule, `share-view` branch tracking
-  upstream)
-- `packages/tlbridge` — TL JSON serialize/hydrate, sanitizer, forward
-  heuristic (shared between frontend and backend)
+- `apps/bot` handles MTProto login, batching, downloads, share creation and
+  oversized-file fallback delivery.
+- `apps/server` exposes the sanitized share API and media streaming endpoint.
+- `apps/web` is the `share-view` branch of the telegram-tt fork, included as
+  a Git submodule.
+- `packages/tlbridge` owns TL serialization, hydration, sanitization and the
+  nested-forward heuristic.
+- `deploy` contains the systemd service and host Nginx configuration.
 
-Full design decisions, risks and the step-by-step plan live in
-[docs/PLAN.md](docs/PLAN.md) (the authoritative reference).
+The authoritative design and implementation history are in
+[docs/PLAN.md](docs/PLAN.md).
 
-## Prerequisites
+## Production Deployment
 
-- Node.js ≥ 22, pnpm 10
-- `api_id` / `api_hash` from my.telegram.org → API development tools
-- A bot created via BotFather (`BOT_TOKEN`); Mini App (direct link) short
-  name configured in BotFather
+Prerequisites:
 
-## Development
+- Linux with systemd and Nginx
+- Node.js 24.11 or newer, pnpm 10 and npm 11
+- A public hostname whose DNS points to the host
+- Telegram `api_id` and `api_hash` from
+  [my.telegram.org](https://my.telegram.org/)
+- A bot token and Mini App configured through
+  [@BotFather](https://t.me/BotFather)
+
+Build the application from source, run the bot and API under systemd, and let
+the host Nginx instance own public ports and TLS. The API listens on
+`127.0.0.1:3000`; Nginx serves WebA and proxies `/api/` and `/media/`.
+
+Set `PUBLIC_ORIGIN` to the final HTTPS origin without a trailing slash. In
+BotFather, create a named Web App for the bot, set its URL to that origin and
+put its short name in `MINIAPP_SHORT_NAME`. Share replies then include both
+`PUBLIC_ORIGIN/s/<shareId>` and
+`t.me/<bot>/<short-name>?startapp=<shareId>` links.
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for source installation, systemd,
+Nginx, upgrades, rollback, backup and restore details.
+
+## Local Development
+
+The backend requires Node.js 22 or newer and pnpm 10. The WebA submodule has
+its own toolchain and currently requires Node.js `^24.11` with npm `^11`.
 
 ```bash
-cp .env.example .env   # fill in credentials
+git submodule update --init apps/web
+cp .env.example .env
 pnpm install
+
+cd apps/web
+npm ci
+cd ../..
+```
+
+Build and start the API and bot in separate terminals:
+
+```bash
+pnpm --filter @tbfb/server build
+pnpm --filter @tbfb/server start
+```
+
+```bash
+pnpm --filter @tbfb/bot build
+pnpm --filter @tbfb/bot start
+```
+
+Start the mocked WebA share view in a third terminal:
+
+```bash
+cd apps/web
+npm run dev:mocked
+```
+
+The share route is `http://localhost:1235/s/<shareId>` and Vite proxies its
+API/media requests to the server on port 3000. For links generated by a local
+bot, set `PUBLIC_ORIGIN=http://localhost:1235`.
+
+`SESSION` can hold a StringSession directly. Alternatively, set
+`SESSION_FILE`; the bot loads it when `SESSION` is empty and persists the
+connected session there.
+
+### Telegram Test Servers
+
+`TELEGRAM_TEST_SERVER=1` connects teleproto to Telegram's separate test
+environment. Use a test-environment bot token, session and data directory;
+production credentials and test credentials are not interchangeable. Plain
+HTTP origins are accepted there, which makes local Mini App testing easier.
+
+## Bot Workflow
+
+1. Forward one or more messages to the bot in a private chat.
+2. Forward more messages before the silence window expires, or tap
+   **Done - generate link** when the batch is complete.
+3. Open the browser link or Mini App link from the bot's reply.
+4. Use `/delete <shareId>` to revoke a published share. Use `/cancel` to
+   discard the batch currently being collected.
+
+The `/help` and `/privacy` commands provide the same core guidance in the
+bot.
+
+## Verification
+
+Backend and bridge gates:
+
+```bash
 pnpm build
+pnpm typecheck
 pnpm test
 pnpm lint
 ```
 
-## Building the web app (apps/web)
-
-`apps/web` is a git submodule pointing at our telegram-tt fork
-(`agoudbg/telegram-tt`, branch `share-view`). It uses npm (not pnpm) and
-requires Node ^24.11 / npm ^11 — newer than the rest of the repo:
+WebA gates:
 
 ```bash
-git submodule update --init apps/web
 cd apps/web
-npm ci
-npm run build:share   # production share-view build → dist/
-npm run dev:mocked    # dev server on :1235, share view at /s/<shareId>
+npm run check:ts
+npm test
+npm run build:share
+npm run test:playwright
 ```
 
-## Running the bot
+The Playwright matrix covers desktop and mobile rendering for all supported
+fixture types and the screenshot baselines. Run it after every telegram-tt
+sync. See [docs/UPSTREAM.md](docs/UPSTREAM.md) for the complete upgrade
+procedure.
 
-```bash
-pnpm --filter @tbfb/bot build
-pnpm --filter @tbfb/bot start   # reads .env from the current directory
-```
+## Privacy and Security
 
-On first login the bot prints a `SESSION=…` line; copy it into `.env` to
-persist the MTProto StringSession. Runtime data (SQLite, media, logs) lives
-under `DATA_DIR` (default `./data`).
+Share pages are public by design: the random link is the permission. Anyone
+holding it can read the full message text, origin names and hosted media.
+Do not publish sensitive batches. Revocation prevents subsequent API/media
+access, but it cannot retract copies already downloaded by viewers.
 
-### Telegram test servers
+The server stores raw TL internally. Public API responses are sanitized in
+`packages/tlbridge`: sensitive media transport fields are removed, the
+forwarder's identity is erased and real peer/media ids are remapped with a
+per-share HMAC key. `BOT_TOKEN`, `API_HASH`, `SESSION` and
+`SANITIZE_SECRET` remain server-side.
 
-Set `TELEGRAM_TEST_SERVER=1` to connect to the Telegram test DCs — useful
-for Mini App development (test DCs allow plain-HTTP origins, so
-`PUBLIC_ORIGIN` can be `http://localhost:3000`). The test environment is
-fully separate from production: create a dedicated bot with the
-test-environment BotFather, and keep `SESSION` and `DATA_DIR` separate as
-well.
+## Known Limitations
 
-## Privacy notice
-
-Share pages are public by default: the link is the permission. Message
-contents and origin names are visible to anyone holding the link. Do not
-forward batches containing sensitive content; `/delete` revokes a share at
-any time.
+- Telegram flattens visible forward chains. Nested forwards are inferred
+  only when forward timestamps move strictly backward; equal timestamps are
+  deliberately not treated as nested.
+- Origin avatars depend on whether the bot can resolve the source peer.
+  Unresolvable channels and hidden users fall back to names or letter
+  avatars.
+- A TL constructor newer than the installed teleproto layer can drop an
+  individual update until teleproto is upgraded. Matching log lines are
+  written to `DATA_DIR/logs/unknown-constructors.log`.
+- Files above `MEDIA_HOST_LIMIT_BYTES` are not hosted. Their fallback works
+  only while the share is public and Telegram still accepts the stored
+  document reference.
+- The share viewer is intentionally read-only. Telegram account, write and
+  settings actions are not part of this product surface.
 
 ## License
 
-GPL-3.0 (the web app forks telegram-tt, GPL-3.0-or-later).
+This project is licensed under
+[GPL-3.0-or-later](LICENSE). The included telegram-tt fork is also licensed
+under GPL v3.
