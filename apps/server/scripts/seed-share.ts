@@ -55,6 +55,7 @@ function makeMessage(id: number, extra: Record<string, unknown>) {
     date: BASE_DATE + id,
     peerId: forwarderPeer(),
     fromId: forwarderPeer(),
+    fwdFrom: fwdFrom({ fromId: { className: 'PeerUser', userId: { $long: PEERS.user.peerId } } }),
     // Teleproto includes absent optional fields as null in real serialized
     // messages. Keep this in fixtures so hydration follows production shape.
     groupedId: null,
@@ -389,6 +390,7 @@ const TYPES_MESSAGES = [
     date: BASE_DATE + 900,
     peerId: forwarderPeer(),
     fromId: forwarderPeer(),
+    fwdFrom: null,
     action: { className: 'MessageActionChatEditTitle', title: 'Group renamed to Test' },
   }),
   makeMessage(16, {
