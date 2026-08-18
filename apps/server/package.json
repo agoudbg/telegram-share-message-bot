@@ -13,7 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/main.js"
+    "start": "cd ../.. && node apps/server/dist/main.js"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

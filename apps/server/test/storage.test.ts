@@ -1,5 +1,9 @@
 // In-memory SQLite tests for the storage layer (Phase 2 Commit 6 acceptance).
 
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/storage/database.js';
 import {
@@ -25,6 +29,19 @@ function freshDb() {
 }
 
 describe('openDatabase', () => {
+  it('creates a missing parent directory for a file database', () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'tbfb-storage-'));
+    const databaseFile = path.join(tempDir, 'nested', 'tbfb.db');
+
+    try {
+      const db = openDatabase(databaseFile);
+      db.close();
+      expect(existsSync(databaseFile)).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('applies all migrations exactly once', () => {
     const db = freshDb();
     const version = db.pragma('user_version', { simple: true }) as number;

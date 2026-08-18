@@ -19,9 +19,7 @@ import type { BotPorts, InputDocumentRef, NormalizedMessage, ResolvedPeer } from
 import { loadSessionValue, persistSessionValue } from './session.js';
 
 /** Load the first .env found walking up from the cwd (no dependency;
- *  Node ≥ 20.6 built-in). `pnpm --filter @tbfb/bot start` runs with the
- *  package directory as cwd while operators usually keep .env at the repo
- *  root, so a plain '.env' check is not enough. */
+ *  Node ≥ 20.6 built-in). */
 function loadEnvFile(): void {
   let dir = process.cwd();
   for (;;) {

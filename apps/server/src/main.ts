@@ -10,9 +10,7 @@ import { createServerApp } from './api/app.js';
 import { loadServerConfig } from './config.js';
 import { openDatabase } from './storage/database.js';
 
-/** Load the first .env found walking up from the cwd (same convention as the
- *  bot: operators keep .env at the repo root while pnpm runs packages with
- *  their own directory as cwd). */
+/** Load the first .env found walking up from the cwd. */
 function loadEnvFile(): void {
   let dir = process.cwd();
   for (;;) {

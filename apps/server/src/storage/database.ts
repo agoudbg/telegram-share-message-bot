@@ -2,6 +2,9 @@
 // better-sqlite3, WAL; the repository layer is isolated so Postgres can
 // replace it later).
 
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+
 import Database from 'better-sqlite3';
 import { MIGRATIONS } from './schema.js';
 
@@ -10,6 +13,9 @@ export type StorageDatabase = Database.Database;
 /** Open (or create) the database at `file` and apply pending migrations.
  *  Use ':memory:' for tests. */
 export function openDatabase(file: string): StorageDatabase {
+  if (file !== ':memory:') {
+    mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+  }
   const db = new Database(file);
   // WAL is silently ignored for in-memory databases (journal_mode stays
   // 'memory'), so tests can share this code path.
