@@ -47,6 +47,19 @@ describe('hydrateTL', () => {
     expect(Object.getPrototypeOf(hydrated)).toBe(Object.prototype);
   });
 
+  it('restores null optional object fields as absent', () => {
+    const hydrated = hydrateTL({
+      className: 'Message',
+      id: 123,
+      groupedId: null,
+      media: null,
+    }, registry) as Message;
+
+    expect(hydrated).toBeInstanceOf(Message);
+    expect(hydrated.groupedId).toBeUndefined();
+    expect(hydrated.media).toBeUndefined();
+  });
+
   it('primitives pass through', () => {
     expect(hydrateTL(null, registry)).toBeNull();
     expect(hydrateTL('x', registry)).toBe('x');

@@ -28,7 +28,10 @@ export function hydrateTL(json: TLJsonValue, registry: TLRegistry = {}): unknown
   const { className, ...fields } = json as TLJsonObject;
   const hydrated: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
-    if (value === undefined) continue;
+    // Teleproto represents absent optional TL fields as null. GramJs builders
+    // distinguish absent values with undefined, so restoring null would make
+    // fields such as groupedId look present and trigger invalid render paths.
+    if (value === undefined || (!value && typeof value === 'object')) continue;
     hydrated[key] = hydrateTL(value, registry);
   }
 

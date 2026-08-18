@@ -45,7 +45,9 @@ export function serializeTL(value: unknown): TLJsonValue {
   const out: TLJsonObject = {};
   for (const [key, field] of Object.entries(value)) {
     if (key.startsWith('_')) continue;
-    if (field === undefined || typeof field === 'function') continue;
+    // Teleproto uses null for absent optional fields. Dropping them preserves
+    // the undefined semantics expected when the TL object is hydrated again.
+    if (field === null || field === undefined || typeof field === 'function') continue;
     out[key] = serializeTL(field);
   }
   const className: unknown = (value as { className?: unknown }).className;

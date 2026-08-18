@@ -43,18 +43,20 @@ describe('serializeTL', () => {
     expect(serializeTL(new SmallInteger('-42'))).toEqual({ $long: '-42' });
   });
 
-  it('native bigint → $long; undefined/function fields are dropped', () => {
+  it('native bigint → $long; null/undefined/function fields are dropped', () => {
     const json = serializeTL({
       className: 'Y',
       a: 5n,
       b: undefined,
       c: () => 1,
       d: 'keep',
+      e: null,
     }) as Record<string, any>;
     expect(json.a).toEqual({ $long: '5' });
     expect('b' in json).toBe(false);
     expect('c' in json).toBe(false);
     expect(json.d).toBe('keep');
+    expect('e' in json).toBe(false);
   });
 
   it('primitives and null pass through', () => {

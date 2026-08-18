@@ -55,6 +55,9 @@ function makeMessage(id: number, extra: Record<string, unknown>) {
     date: BASE_DATE + id,
     peerId: forwarderPeer(),
     fromId: forwarderPeer(),
+    // Teleproto includes absent optional fields as null in real serialized
+    // messages. Keep this in fixtures so hydration follows production shape.
+    groupedId: null,
     ...extra,
   };
 }
