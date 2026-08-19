@@ -10,7 +10,8 @@ import { Hono } from 'hono';
 import type { TLJsonValue } from '@tbfb/tlbridge';
 
 import type { StorageDatabase } from '../storage/database.js';
-import { listMessages, listPeers, listShareMedia } from '../storage/repository.js';
+import { listMediaSources, listMessages, listPeers, listShareMedia } from '../storage/repository.js';
+import type { MediaCache } from '../mediaCache.js';
 import type { PeerKind } from '../storage/repository.js';
 import { checkShareAccess } from './gate.js';
 import { registerMediaRoutes } from './media.js';
@@ -69,6 +70,7 @@ export interface ServerAppDeps {
   dataDir: string;
   /** Bot username for unhosted-media deep links; omit to disable the button */
   botUsername?: string;
+  mediaCache?: MediaCache;
 }
 
 function mediaUrl(shareId: string, fakeKey: string): string {
@@ -110,7 +112,18 @@ export function createServerApp(deps: ServerAppDeps): Hono {
     for (const row of listShareMedia(deps.db, shareId)) {
       if (row.key.startsWith('avatar_')) continue; // served via peers[].avatarUrl
       const fakeKey = sanitizeMediaKey(sanitizer, row.key);
-      const servable = row.hosted && row.path !== null;
+      const sources = listMediaSources(deps.db, row.key);
+      const servable = row.hosted && (row.path !== null || sources.length > 0);
+      const hasThumbnail =
+        row.thumbPath !== null ||
+        sources.some((source) => {
+          if (source.reference === null) return false;
+          try {
+            return (JSON.parse(source.reference) as { hasThumbnail?: unknown }).hasThumbnail === true;
+          } catch {
+            return false;
+          }
+        });
       media[fakeKey] = {
         mime: row.mime,
         size: row.size,
@@ -120,7 +133,7 @@ export function createServerApp(deps: ServerAppDeps): Hono {
         retrievable: row.reference !== null,
         url: servable ? mediaUrl(shareId, fakeKey) : null,
         thumbUrl:
-          servable && row.thumbPath !== null ? `${mediaUrl(shareId, fakeKey)}?thumb=1` : null,
+          servable && hasThumbnail ? `${mediaUrl(shareId, fakeKey)}?thumb=1` : null,
       };
     }
 

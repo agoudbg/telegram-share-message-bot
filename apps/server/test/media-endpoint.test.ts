@@ -8,6 +8,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { createServerApp } from '../src/api/app.js';
+import { MediaCache } from '../src/mediaCache.js';
 import { createShareSanitizer, sanitizeMediaKey } from '../src/api/sanitize.js';
 import { openDatabase } from '../src/storage/database.js';
 import {
@@ -16,6 +17,7 @@ import {
   insertMediaIfAbsent,
   linkMediaToShare,
   revokeShare,
+  upsertMediaSource,
 } from '../src/storage/repository.js';
 
 const SECRET = 'test-secret';
@@ -31,6 +33,7 @@ const WEBP_THUMB = Buffer.concat([
 ]);
 
 const dirs: string[] = [];
+const caches: MediaCache[] = [];
 
 async function setup() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-server-'));
@@ -57,6 +60,7 @@ async function setup() {
 }
 
 afterAll(async () => {
+  for (const cache of caches) cache.close();
   await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
 });
 
@@ -103,6 +107,59 @@ describe('GET /media/:shareId/:key', () => {
     expect(clamped.status).toBe(206);
     expect(clamped.headers.get('Content-Range')).toBe(`bytes 9-10/${CONTENT.length}`);
     expect(await clamped.text()).toBe('ld');
+  });
+
+  it('streams a cold Telegram source into the cache and reuses it', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-server-remote-'));
+    dirs.push(dataDir);
+    const db = openDatabase(':memory:');
+    createShare(db, { id: SHARE_ID, ownerUserId: 'u1' });
+    insertMediaIfAbsent(db, {
+      key: 'remote',
+      hosted: true,
+      path: null,
+      mime: 'text/plain',
+      size: CONTENT.length,
+    });
+    upsertMediaSource(db, {
+      mediaKey: 'remote',
+      kind: 'document',
+      sourcePeerId: 'u1',
+      sourceMessageId: 7,
+      reference: '{}',
+    });
+    linkMediaToShare(db, SHARE_ID, 'remote');
+    finalizeShare(db, SHARE_ID);
+
+    let fetches = 0;
+    const cache = new MediaCache({
+      db,
+      dataDir,
+      origin: {
+        fetch: () => {
+          fetches += 1;
+          return Promise.resolve(
+            new Response(CONTENT, {
+              headers: { 'Content-Type': 'text/plain', 'Content-Length': String(CONTENT.length) },
+            }),
+          );
+        },
+      },
+      maxBytes: 1024,
+      lowWatermarkBytes: 768,
+      ttlSeconds: 86400,
+      sweepIntervalSeconds: 3600,
+    });
+    caches.push(cache);
+    const app = createServerApp({ db, sanitizeSecret: SECRET, dataDir, mediaCache: cache });
+    const fakeKey = sanitizeMediaKey(createShareSanitizer(SECRET, SHARE_ID), 'remote');
+    const url = `/media/${SHARE_ID}/${fakeKey}`;
+
+    const range = await app.request(url, { headers: { Range: 'bytes=6-' } });
+    expect(range.status).toBe(206);
+    expect(await range.text()).toBe('world');
+    expect(await (await app.request(url)).text()).toBe(CONTENT);
+    expect(fetches).toBe(1);
   });
 
   it('answers 416 for unsatisfiable ranges', async () => {

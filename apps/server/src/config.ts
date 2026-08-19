@@ -15,9 +15,28 @@ export interface ServerConfig {
   /** Bot username (without @) building the `get_<shareId>_<seq>` deep links
    *  for unhosted media (docs/PLAN.md §2.5); undefined disables the button */
   botUsername?: string;
+  internalMediaPort: number;
+  internalMediaSecret: string;
+  mediaCacheMaxBytes: number;
+  mediaCacheLowWatermarkBytes: number;
+  mediaCacheTtlSeconds: number;
+  mediaCacheSweepIntervalSeconds: number;
 }
 
 const DEFAULT_PORT = 3000;
+const DEFAULT_INTERNAL_MEDIA_PORT = 3001;
+const DEFAULT_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+const DEFAULT_CACHE_LOW_WATERMARK_BYTES = 4 * 1024 * 1024 * 1024;
+
+function positiveInt(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Environment variable ${name} must be a positive integer, got ${raw}`);
+  }
+  return value;
+}
 
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const sanitizeSecret = env.SANITIZE_SECRET;
@@ -35,5 +54,20 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     port,
     sanitizeSecret,
     botUsername: env.BOT_USERNAME?.replace(/^@/, '') || undefined,
+    internalMediaPort: positiveInt(env, 'INTERNAL_MEDIA_PORT', DEFAULT_INTERNAL_MEDIA_PORT),
+    internalMediaSecret:
+      env.INTERNAL_MEDIA_SECRET === undefined || env.INTERNAL_MEDIA_SECRET === ''
+        ? (() => {
+            throw new Error('Missing required environment variable INTERNAL_MEDIA_SECRET');
+          })()
+        : env.INTERNAL_MEDIA_SECRET,
+    mediaCacheMaxBytes: positiveInt(env, 'MEDIA_CACHE_MAX_BYTES', DEFAULT_CACHE_MAX_BYTES),
+    mediaCacheLowWatermarkBytes: positiveInt(
+      env,
+      'MEDIA_CACHE_LOW_WATERMARK_BYTES',
+      DEFAULT_CACHE_LOW_WATERMARK_BYTES,
+    ),
+    mediaCacheTtlSeconds: positiveInt(env, 'MEDIA_CACHE_TTL_SECONDS', 86400),
+    mediaCacheSweepIntervalSeconds: positiveInt(env, 'MEDIA_CACHE_SWEEP_INTERVAL_SECONDS', 300),
   };
 }

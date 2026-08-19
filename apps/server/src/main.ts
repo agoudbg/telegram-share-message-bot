@@ -9,6 +9,7 @@ import { serve } from '@hono/node-server';
 import { createServerApp } from './api/app.js';
 import { loadServerConfig } from './config.js';
 import { openDatabase } from './storage/database.js';
+import { HttpMediaOriginClient, MediaCache } from './mediaCache.js';
 
 /** Load the first .env found walking up from the cwd. */
 function loadEnvFile(): void {
@@ -29,11 +30,25 @@ function main(): void {
   loadEnvFile();
   const config = loadServerConfig();
   const db = openDatabase(path.join(config.dataDir, 'tbfb.db'));
+  if (config.mediaCacheLowWatermarkBytes >= config.mediaCacheMaxBytes) {
+    throw new Error('MEDIA_CACHE_LOW_WATERMARK_BYTES must be lower than MEDIA_CACHE_MAX_BYTES');
+  }
+  const mediaCache = new MediaCache({
+    db,
+    dataDir: config.dataDir,
+    origin: new HttpMediaOriginClient(config.internalMediaPort, config.internalMediaSecret),
+    maxBytes: config.mediaCacheMaxBytes,
+    lowWatermarkBytes: config.mediaCacheLowWatermarkBytes,
+    ttlSeconds: config.mediaCacheTtlSeconds,
+    sweepIntervalSeconds: config.mediaCacheSweepIntervalSeconds,
+    log: (line) => console.error(`[media-cache] ${line}`),
+  });
   const app = createServerApp({
     db,
     sanitizeSecret: config.sanitizeSecret,
     dataDir: config.dataDir,
     botUsername: config.botUsername,
+    mediaCache,
   });
 
   serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {

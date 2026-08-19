@@ -6,6 +6,8 @@ export type { ServerAppDeps, ShareMediaEntry, ShareResponse } from './api/app.js
 export { checkShareAccess } from './api/gate.js';
 export { registerMediaRoutes } from './api/media.js';
 export type { MediaRouteDeps } from './api/media.js';
+export { HttpMediaOriginClient, MediaCache, MediaFetchError } from './mediaCache.js';
+export type { CachedMediaHandle, MediaCacheOptions, MediaOriginClient } from './mediaCache.js';
 export { createShareSanitizer, resolveMediaKey, sanitizeMediaKey } from './api/sanitize.js';
 export { loadServerConfig } from './config.js';
 export type { ServerConfig } from './config.js';

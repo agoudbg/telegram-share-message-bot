@@ -12,9 +12,11 @@ import { open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 
 import type { StorageDatabase } from '../storage/database.js';
+import { MediaFetchError } from '../mediaCache.js';
+import type { MediaCache } from '../mediaCache.js';
 import { checkShareAccess } from './gate.js';
 import { createShareSanitizer, resolveMediaKey } from './sanitize.js';
 
@@ -23,6 +25,7 @@ export interface MediaRouteDeps {
   sanitizeSecret: string;
   /** Base directory holding media/ (media rows store paths relative to it) */
   dataDir: string;
+  mediaCache?: MediaCache;
 }
 
 /** Media keys are content-stable (document/photo ids), so responses are
@@ -75,7 +78,26 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
 
     const thumb = c.req.query('thumb') === '1';
     const relPath = thumb ? media.thumbPath : media.path;
-    if (!media.hosted || relPath === null) return c.json({ error: 'not_found' }, 404);
+    if (!media.hosted) return c.json({ error: 'not_found' }, 404);
+
+    if (relPath === null && deps.mediaCache !== undefined) {
+      try {
+        const variant = media.key.startsWith('avatar_') ? 'avatar' : thumb ? 'thumb' : 'full';
+        const cached = await deps.mediaCache.open(media, variant);
+        return streamHandle(c, cached, c.req.header('range'));
+      } catch (error) {
+        if (error instanceof MediaFetchError) {
+          const headers = error.retryAfter === undefined ? undefined : { 'Retry-After': error.retryAfter };
+          return c.json(
+            { error: error.status === 404 ? 'not_found' : 'media_unavailable' },
+            error.status === 404 ? 404 : 503,
+            headers,
+          );
+        }
+        return c.json({ error: 'media_unavailable' }, 503, { 'Retry-After': '5' });
+      }
+    }
+    if (relPath === null) return c.json({ error: 'not_found' }, 404);
 
     // Stored paths are server-written, but never trust them blindly
     const mediaRoot = path.resolve(deps.dataDir, 'media');
@@ -121,6 +143,38 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     const stream = Readable.toWeb(createReadStream(absPath, { start, end })) as ReadableStream;
     return c.body(stream, status, headers);
   });
+}
+
+function streamHandle(
+  c: Context,
+  handle: Awaited<ReturnType<MediaCache['open']>>,
+  rangeHeader: string | undefined,
+) {
+  const headers: Record<string, string> = {
+    'Content-Type': handle.contentType,
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': CACHE_CONTROL,
+  };
+  if (handle.size === null) {
+    return c.body(Readable.toWeb(handle.stream(0)) as ReadableStream, 200, headers);
+  }
+  if (handle.size === 0) {
+    headers['Content-Length'] = '0';
+    return c.body(null, 200, headers);
+  }
+  const range = parseRangeHeader(rangeHeader, handle.size);
+  if (range === 'invalid') {
+    return c.body(null, 416, { ...headers, 'Content-Range': `bytes */${handle.size}` });
+  }
+  const { start, end } = range ?? { start: 0, end: handle.size - 1 };
+  headers['Content-Length'] = String(end - start + 1);
+  const status = range === null ? 200 : 206;
+  if (range !== null) headers['Content-Range'] = `bytes ${start}-${end}/${handle.size}`;
+  return c.body(
+    Readable.toWeb(handle.stream(start, end)) as ReadableStream,
+    status,
+    headers,
+  );
 }
 
 /** Detect the image type of a thumbnail from its magic bytes; null when
