@@ -156,6 +156,11 @@ previous message's (`next < prev`) → mark `nestedForward` → render it in
   in one batch very often share a second; treating equality as nested would
   cause many false positives. Only "clearly earlier" is a reliable
   time-reversal signal.
+- Display timestamps remain nondecreasing in batch order: the web adapter uses
+  each message's original `fwdFrom.date` when possible, but clamps a backward
+  value to the previous displayed timestamp. This prevents flattened nested
+  forwards from producing backward date separators while retaining the true
+  source timestamp in `forwardInfo.date`.
 - Pure function + configurable switch; the UI never states the verdict
   absolutely.
 
