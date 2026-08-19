@@ -30,9 +30,6 @@ function main(): void {
   loadEnvFile();
   const config = loadServerConfig();
   const db = openDatabase(path.join(config.dataDir, 'tbfb.db'));
-  if (config.mediaCacheLowWatermarkBytes >= config.mediaCacheMaxBytes) {
-    throw new Error('MEDIA_CACHE_LOW_WATERMARK_BYTES must be lower than MEDIA_CACHE_MAX_BYTES');
-  }
   const mediaCache = new MediaCache({
     db,
     dataDir: config.dataDir,
@@ -41,6 +38,7 @@ function main(): void {
     lowWatermarkBytes: config.mediaCacheLowWatermarkBytes,
     ttlSeconds: config.mediaCacheTtlSeconds,
     sweepIntervalSeconds: config.mediaCacheSweepIntervalSeconds,
+    maxConcurrentFetches: config.mediaFetchConcurrency,
     log: (line) => console.error(`[media-cache] ${line}`),
   });
   const app = createServerApp({

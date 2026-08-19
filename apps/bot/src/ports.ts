@@ -58,15 +58,6 @@ export interface BotPorts {
   /** Delete bot messages (best effort: the collecting prompt and the
    *  processing status are removed once a share is ready) */
   deleteMessages(chatId: string, messageIds: number[]): Promise<void>;
-  downloadMedia(
-    raw: unknown,
-    destAbsPath: string,
-    onProgress?: (received: number, total?: number) => void,
-  ): Promise<void>;
-  /** Returns false when the message has no downloadable thumbnail */
-  downloadThumb(raw: unknown, destAbsPath: string): Promise<boolean>;
   /** null = unresolvable (e.g. a channel the bot is not in) */
   resolvePeer(peerId: string): Promise<ResolvedPeer | null>;
-  /** Returns false when the peer has no photo */
-  downloadAvatar(peerId: string, destAbsPath: string): Promise<boolean>;
 }

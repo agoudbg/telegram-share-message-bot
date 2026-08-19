@@ -35,6 +35,7 @@ export interface MediaCacheOptions {
   lowWatermarkBytes: number;
   ttlSeconds: number;
   sweepIntervalSeconds: number;
+  maxConcurrentFetches?: number;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -77,6 +78,8 @@ export class MediaCache {
   private readonly starts = new Map<string, Promise<FetchTask>>();
   private reservedBytes = 0;
   private capacityTail: Promise<void> = Promise.resolve();
+  private activeFetches = 0;
+  private readonly fetchWaiters: Array<() => void> = [];
   private readonly initPromise: Promise<void>;
   private readonly timer: NodeJS.Timeout;
 
@@ -203,8 +206,10 @@ export class MediaCache {
   }
 
   private async runTask(media: MediaRow, task: FetchTask): Promise<void> {
-    const file = await open(task.finalPath, 'w');
+    await this.acquireFetchSlot();
+    let file: Awaited<ReturnType<typeof open>> | null = null;
     try {
+      file = await open(task.finalPath, 'w');
       const response = await this.options.origin.fetch(task.key, task.variant);
       if (!response.ok || response.body === null) {
         throw new MediaFetchError(response.status, response.headers.get('Retry-After') ?? undefined);
@@ -243,9 +248,29 @@ export class MediaCache {
       task.error = error;
       task.rejectReady(error);
       notify(task);
-      await file.close().catch(() => undefined);
+      await file?.close().catch(() => undefined);
       await unlink(task.finalPath).catch(() => undefined);
+    } finally {
+      this.releaseFetchSlot();
     }
+  }
+
+  private async acquireFetchSlot(): Promise<void> {
+    const limit = this.options.maxConcurrentFetches ?? 2;
+    if (this.activeFetches < limit) {
+      this.activeFetches += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.fetchWaiters.push(resolve));
+  }
+
+  private releaseFetchSlot(): void {
+    const waiter = this.fetchWaiters.shift();
+    if (waiter !== undefined) {
+      waiter();
+      return;
+    }
+    this.activeFetches -= 1;
   }
 
   private async reserve(expectedBytes: number): Promise<number> {

@@ -31,6 +31,7 @@ export interface MediaRouteDeps {
 /** Media keys are content-stable (document/photo ids), so responses are
  *  immutable and cacheable forever. */
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const AVATAR_CACHE_CONTROL = 'public, max-age=3600';
 
 interface ByteRange {
   start: number;
@@ -84,7 +85,12 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
       try {
         const variant = media.key.startsWith('avatar_') ? 'avatar' : thumb ? 'thumb' : 'full';
         const cached = await deps.mediaCache.open(media, variant);
-        return streamHandle(c, cached, c.req.header('range'));
+        return streamHandle(
+          c,
+          cached,
+          c.req.header('range'),
+          media.key.startsWith('avatar_') ? AVATAR_CACHE_CONTROL : CACHE_CONTROL,
+        );
       } catch (error) {
         if (error instanceof MediaFetchError) {
           const headers = error.retryAfter === undefined ? undefined : { 'Retry-After': error.retryAfter };
@@ -122,7 +128,7 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     const headers: Record<string, string> = {
       'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
-      'Cache-Control': CACHE_CONTROL,
+      'Cache-Control': media.key.startsWith('avatar_') ? AVATAR_CACHE_CONTROL : CACHE_CONTROL,
     };
 
     if (size === 0) {
@@ -149,11 +155,12 @@ function streamHandle(
   c: Context,
   handle: Awaited<ReturnType<MediaCache['open']>>,
   rangeHeader: string | undefined,
+  cacheControl: string,
 ) {
   const headers: Record<string, string> = {
     'Content-Type': handle.contentType,
     'Accept-Ranges': 'bytes',
-    'Cache-Control': CACHE_CONTROL,
+    'Cache-Control': cacheControl,
   };
   if (handle.size === null) {
     return c.body(Readable.toWeb(handle.stream(0)) as ReadableStream, 200, headers);

@@ -14,9 +14,8 @@ pipeline.
 - Renders text, entities, albums, media, stickers, voice messages, round
   videos, polls, locations, contacts, replies, forwards and service messages
   through WebA.
-- Hosts media with HTTP Range support. Files above the configured threshold
-  use a **View in Telegram** fallback that re-sends the original document
-  reference without downloading and uploading it again.
+- Loads media from Telegram on first access, streams it with HTTP Range
+  support and keeps a bounded 24-hour/5 GiB local cache.
 - Serves public pages with share-scoped fake ids and no media access hashes,
   file references or Telegram data-center ids.
 - Revokes shares through `/delete <shareId>`.
@@ -26,15 +25,17 @@ pipeline.
 ```text
 User forwards messages
   -> teleproto bot session (MTProto)
-  -> raw TL JSON + media in SQLite/files
+  -> raw TL JSON + refreshable media locators in SQLite
+  -> Telegram read-through media cache on viewer requests
   -> sanitized share API
   -> telegram-tt hydrates TL constructors
   -> official buildApiMessage/render pipeline
 ```
 
-- `apps/bot` handles MTProto login, batching, downloads, share creation and
-  oversized-file fallback delivery.
-- `apps/server` exposes the sanitized share API and media streaming endpoint.
+- `apps/bot` handles MTProto login, batching, media-source registration,
+  on-demand Telegram downloads and fallback delivery.
+- `apps/server` exposes the sanitized share API, Range endpoint and bounded
+  read-through cache.
 - `apps/web` is the `share-view` branch of the telegram-tt fork, included as
   a Git submodule.
 - `packages/tlbridge` owns TL serialization, hydration, sanitization and the
@@ -66,7 +67,9 @@ put its short name in `MINIAPP_SHORT_NAME`. Share replies then include both
 `PUBLIC_ORIGIN/s/<shareId>` and
 `t.me/<bot>/<short-name>?startapp=<shareId>` links.
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for source installation, systemd,
+The production data directory contains SQLite, the disposable media cache,
+logs and the persisted MTProto StringSession. See
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for source installation, systemd,
 Nginx, upgrades, rollback, backup and restore details.
 
 ## Local Development
@@ -110,6 +113,10 @@ bot, set `PUBLIC_ORIGIN=http://localhost:1235`.
 `SESSION` can hold a StringSession directly. Alternatively, set
 `SESSION_FILE`; the bot loads it when `SESSION` is empty and persists the
 connected session there.
+
+When starting bot and server in separate terminals, set the same non-empty
+`INTERNAL_MEDIA_SECRET` for both. The internal origin binds only to
+`127.0.0.1:INTERNAL_MEDIA_PORT`.
 
 ### Telegram Test Servers
 
@@ -159,7 +166,7 @@ procedure.
 ## Privacy and Security
 
 Share pages are public by design: the random link is the permission. Anyone
-holding it can read the full message text, origin names and hosted media.
+holding it can read the full message text, origin names and requested media.
 Do not publish sensitive batches. Revocation prevents subsequent API/media
 access, but it cannot retract copies already downloaded by viewers.
 
@@ -180,9 +187,10 @@ per-share HMAC key. `BOT_TOKEN`, `API_HASH`, `SESSION` and
 - A TL constructor newer than the installed teleproto layer can drop an
   individual update until teleproto is upgraded. Matching log lines are
   written to `DATA_DIR/logs/unknown-constructors.log`.
-- Files above `MEDIA_HOST_LIMIT_BYTES` are not hosted. Their fallback works
-  only while the share is public and Telegram still accepts the stored
-  document reference.
+- On-demand media depends on the bot retaining either the exact incoming
+  message id or a still-valid MTProto file reference. Bots can retrieve known
+  message ids but cannot enumerate chat history; deleting every registered
+  source may make an uncached file unavailable.
 - The share viewer is intentionally read-only. Telegram account, write and
   settings actions are not part of this product surface.
 

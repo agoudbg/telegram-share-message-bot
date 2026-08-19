@@ -40,9 +40,7 @@ const STALE_PENDING_SHARE_SECONDS = 3600;
 async function main(): Promise<void> {
   loadEnvFile();
   const config = loadConfig();
-  const mediaDir = path.join(config.dataDir, 'media');
   const logsDir = path.join(config.dataDir, 'logs');
-  await mkdir(mediaDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
 
   // Unknown-constructor lines are the "time to upgrade teleproto" detector
@@ -171,42 +169,6 @@ function createTeleprotoPorts(client: TelegramClient): BotPorts {
       });
     },
 
-    async downloadMedia(raw, destAbsPath, onProgress) {
-      await client.downloadMedia(raw as Api.Message, {
-        outputFile: destAbsPath,
-        progressCallback:
-          onProgress === undefined
-            ? undefined
-            : (received, total) => onProgress(Number(received), Number(total)),
-      });
-    },
-
-    async downloadThumb(raw, destAbsPath) {
-      const message = raw as Api.Message;
-      const media = message.media;
-      if (media instanceof Api.MessageMediaDocument) {
-        const document = media.document;
-        if (!(document instanceof Api.Document)) return false;
-        const thumbs = document.thumbs ?? [];
-        if (thumbs.length === 0) return false;
-        await client.downloadMedia(message, { outputFile: destAbsPath, thumb: thumbs.length - 1 });
-        return true;
-      }
-      if (media instanceof Api.MessageMediaPhoto) {
-        if (!(media.photo instanceof Api.Photo)) return false;
-        // For photos `thumb` indexes photo.sizes (the last one is the full
-        // image): take a small size so the share page gets a real thumbnail
-        const sizes = media.photo.sizes ?? [];
-        if (sizes.length < 2) return false;
-        await client.downloadMedia(message, {
-          outputFile: destAbsPath,
-          thumb: Math.min(1, sizes.length - 1),
-        });
-        return true;
-      }
-      return false;
-    },
-
     async resolvePeer(peerId) {
       let entity: unknown;
       try {
@@ -218,15 +180,6 @@ function createTeleprotoPorts(client: TelegramClient): BotPorts {
       return resolvedPeerFromEntity(entity);
     },
 
-    async downloadAvatar(peerId, destAbsPath) {
-      const entity: unknown = await client.getEntity(bigInt(peerId));
-      if (Array.isArray(entity)) return false;
-      const result = await client.downloadProfilePhoto(
-        entity as Parameters<TelegramClient['downloadProfilePhoto']>[0],
-        { outputFile: destAbsPath },
-      );
-      return result !== undefined;
-    },
   };
 }
 

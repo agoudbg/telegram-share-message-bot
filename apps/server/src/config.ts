@@ -12,8 +12,8 @@ export interface ServerConfig {
    *  share id it forms the sanitizer's shareSecret, so fake ids cannot be
    *  recomputed offline from a leaked share id (docs/PLAN.md §2.6). */
   sanitizeSecret: string;
-  /** Bot username (without @) building the `get_<shareId>_<seq>` deep links
-   *  for unhosted media (docs/PLAN.md §2.5); undefined disables the button */
+  /** Bot username (without @) building the `get_<shareId>_<seq>` document
+   *  fallback links (docs/PLAN.md §2.5); undefined disables the button */
   botUsername?: string;
   internalMediaPort: number;
   internalMediaSecret: string;
@@ -21,6 +21,7 @@ export interface ServerConfig {
   mediaCacheLowWatermarkBytes: number;
   mediaCacheTtlSeconds: number;
   mediaCacheSweepIntervalSeconds: number;
+  mediaFetchConcurrency: number;
 }
 
 const DEFAULT_PORT = 3000;
@@ -48,6 +49,15 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     throw new Error(`Environment variable PORT must be a valid port number, got ${portValue}`);
   }
+  const mediaCacheMaxBytes = positiveInt(env, 'MEDIA_CACHE_MAX_BYTES', DEFAULT_CACHE_MAX_BYTES);
+  const mediaCacheLowWatermarkBytes = positiveInt(
+    env,
+    'MEDIA_CACHE_LOW_WATERMARK_BYTES',
+    DEFAULT_CACHE_LOW_WATERMARK_BYTES,
+  );
+  if (mediaCacheLowWatermarkBytes >= mediaCacheMaxBytes) {
+    throw new Error('MEDIA_CACHE_LOW_WATERMARK_BYTES must be lower than MEDIA_CACHE_MAX_BYTES');
+  }
   return {
     dataDir: env.DATA_DIR || './data',
     host: env.HOST || '127.0.0.1',
@@ -61,13 +71,10 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
             throw new Error('Missing required environment variable INTERNAL_MEDIA_SECRET');
           })()
         : env.INTERNAL_MEDIA_SECRET,
-    mediaCacheMaxBytes: positiveInt(env, 'MEDIA_CACHE_MAX_BYTES', DEFAULT_CACHE_MAX_BYTES),
-    mediaCacheLowWatermarkBytes: positiveInt(
-      env,
-      'MEDIA_CACHE_LOW_WATERMARK_BYTES',
-      DEFAULT_CACHE_LOW_WATERMARK_BYTES,
-    ),
+    mediaCacheMaxBytes,
+    mediaCacheLowWatermarkBytes,
     mediaCacheTtlSeconds: positiveInt(env, 'MEDIA_CACHE_TTL_SECONDS', 86400),
     mediaCacheSweepIntervalSeconds: positiveInt(env, 'MEDIA_CACHE_SWEEP_INTERVAL_SECONDS', 300),
+    mediaFetchConcurrency: positiveInt(env, 'MEDIA_FETCH_CONCURRENCY', 2),
   };
 }

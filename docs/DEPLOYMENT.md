@@ -61,12 +61,14 @@ BOT_USERNAME=example_bot
 MINIAPP_SHORT_NAME=share
 DATA_DIR=/var/lib/telegram-batch-forwarding-bot
 SESSION_FILE=/var/lib/telegram-batch-forwarding-bot/session.txt
+INTERNAL_MEDIA_PORT=3001
+INTERNAL_MEDIA_SECRET=replace-with-an-independent-random-secret
 ```
 
-Generate `SANITIZE_SECRET`, for example with `openssl rand -base64 48`, and
-keep it stable across restores: changing it changes the public fake ids
-derived for every share. `SESSION` may be left unset when `SESSION_FILE` is
-configured.
+Generate `SANITIZE_SECRET` and `INTERNAL_MEDIA_SECRET` independently, for
+example with `openssl rand -base64 48`. Keep `SANITIZE_SECRET` stable across
+restores: changing it changes the public fake ids derived for every share.
+`SESSION` may be left unset when `SESSION_FILE` is configured.
 
 ```bash
 sudo chown root:tbfb /etc/telegram-batch-forwarding-bot.env
@@ -136,12 +138,13 @@ consistently:
 
 ```bash
 sudo systemctl stop telegram-batch-forwarding-bot
-sudo rsync -a /var/lib/telegram-batch-forwarding-bot/ \
+sudo rsync -a --exclude cache/ /var/lib/telegram-batch-forwarding-bot/ \
   /srv/backups/telegram-batch-forwarding-bot/data-YYYY-MM-DD/
 sudo systemctl start telegram-batch-forwarding-bot
 ```
 
 Back up `/etc/telegram-batch-forwarding-bot.env` in the same encrypted backup
-set. To restore, stop the service, restore the complete data directory and
-environment file, repair ownership to `tbfb:tbfb`, then start the service and
-check `/healthz`.
+set. The media cache is intentionally excluded; Telegram repopulates it from
+the source locators stored in `tbfb.db`. To restore, stop the service, restore
+the complete data directory and environment file, repair ownership to
+`tbfb:tbfb`, then start the service and check `/healthz`.

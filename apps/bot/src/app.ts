@@ -1,5 +1,5 @@
 // Bot application core: command routing, batch orchestration, share
-// finalization and the oversized-file fallback (docs/PLAN.md, Phase 2
+// finalization and the document fallback (docs/PLAN.md, Phase 2
 // Commits 5/7/9). teleproto-free by design — main.ts wires the real ports.
 
 import type { StorageDatabase } from '@tbfb/server';

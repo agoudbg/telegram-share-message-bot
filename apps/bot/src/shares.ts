@@ -1,5 +1,5 @@
 // Share creation helpers, deep-link payloads and send rate limiting
-// (docs/PLAN.md, Phase 2 Commit 9; §2.5 oversized-file fallback).
+// (docs/PLAN.md, Phase 2 Commit 9; §2.5 document fallback).
 
 import { randomBytes } from 'node:crypto';
 

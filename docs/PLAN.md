@@ -196,8 +196,9 @@ previous message's (`next < prev`) → mark `nestedForward` → render it in
 └── README.md / LICENSE (GPL-3.0) / docs/UPSTREAM.md
 ```
 
-Storage: SQLite (better-sqlite3, WAL) + `data/media/` files; the repository
-layer is isolated so Postgres can replace it later.
+Storage: SQLite (better-sqlite3, WAL) + bounded disposable files under
+`data/cache/media/`; the repository layer is isolated so Postgres can replace
+it later.
 
 ## 4. Step-by-step plan (each step = one independent commit)
 
@@ -270,7 +271,7 @@ layer is isolated so Postgres can replace it later.
 - Acceptance: forwarding image/video/file messages writes metadata and source
   rows while leaving the cache directory empty.
 
-**Commit 9 — `feat(bot): share creation, reply and oversized-file fallback`**
+**Commit 9 — `feat(bot): share creation, reply and document fallback`**
 
 - Finish → random share id → public → reply with: HTTPS link +
   `t.me/<bot>/<app>?startapp=<id>` direct link + inline
@@ -327,7 +328,7 @@ layer is isolated so Postgres can replace it later.
   mechanism depends on this commit's media URL wiring)
 - Acceptance: images/videos/stickers/voice/round video all display/play
 
-**Commit 15 — `feat(web): "View in Telegram" placeholder for unhosted media`**
+**Commit 15 — `feat(web): "View in Telegram" placeholder for unavailable media`**
 
 - hosted:false media renders an official-style placeholder bubble + button
   (t.me deep link `?start=get_…`)

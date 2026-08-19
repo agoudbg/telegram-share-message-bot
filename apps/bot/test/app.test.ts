@@ -1,5 +1,5 @@
 // BotApp orchestration tests (Phase 2 Commits 5/7/9): command routing,
-// batch → share finalization, /cancel, /delete and the oversized-file
+// batch → share finalization, /cancel, /delete and the document
 // fallback — with fake ports and an in-memory database.
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -49,10 +49,7 @@ function fakePorts() {
       deleted.push({ chatId, messageIds });
       return Promise.resolve();
     },
-    downloadMedia: () => Promise.resolve(),
-    downloadThumb: () => Promise.resolve(false),
     resolvePeer: () => Promise.resolve(null),
-    downloadAvatar: () => Promise.resolve(false),
   };
   return { ports, texts, docs, deleted };
 }
@@ -98,7 +95,7 @@ function forwardMessage(
   };
 }
 
-function oversizedDocument(docId: string, withRef = true): TLJsonObject {
+function largeDocument(docId: string, withRef = true): TLJsonObject {
   return {
     media: {
       className: 'MessageMediaDocument',
@@ -330,7 +327,7 @@ describe('BotApp', () => {
 
   it('delivers registered files via /start get_<shareId>_<seq> with rate limiting', async () => {
     const { app, db, texts, docs } = await trackedSetup();
-    await app.handleMessage(forwardMessage('u1', 1, 100, oversizedDocument('doc1')));
+    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('doc1')));
     await app.handleDoneCallback('u1');
 
     const media = getMedia(db, 'doc1');
@@ -353,7 +350,7 @@ describe('BotApp', () => {
 
   it('reports registered files without a reference as unresendable', async () => {
     const { app, db, texts, docs } = await trackedSetup();
-    await app.handleMessage(forwardMessage('u1', 1, 100, oversizedDocument('noref', false)));
+    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('noref', false)));
     await app.handleDoneCallback('u1');
 
     const media = getMedia(db, 'noref');
@@ -367,7 +364,7 @@ describe('BotApp', () => {
 
   it('refuses the fallback for revoked shares', async () => {
     const { app, db, texts } = await trackedSetup();
-    await app.handleMessage(forwardMessage('u1', 1, 100, oversizedDocument('doc1')));
+    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('doc1')));
     await app.handleDoneCallback('u1');
     await app.handleMessage(commandMessage('u1', '/delete share_1'));
     expect(getShare(db, 'share_1')?.status).toBe('revoked');
