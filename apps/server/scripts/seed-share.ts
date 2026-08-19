@@ -315,7 +315,28 @@ function messageContact(firstName: string, lastName: string, phoneNumber: string
 const ALBUM_GROUP_ID = '777000777';
 
 const TYPES_MESSAGES = [
-  makeMessage(1, { message: 'Plain text message' }),
+  makeMessage(1, {
+    message: 'Plain text message',
+    reactions: {
+      className: 'MessageReactions',
+      results: [{
+        className: 'ReactionCount',
+        reaction: { className: 'ReactionEmoji', emoticon: '👍' },
+        count: 3,
+      }],
+    },
+    replyMarkup: {
+      className: 'ReplyInlineMarkup',
+      rows: [{
+        className: 'KeyboardButtonRow',
+        buttons: [{
+          className: 'KeyboardButtonCallback',
+          text: 'Unsafe callback',
+          data: { $bytes: 'AQ==' },
+        }],
+      }],
+    },
+  }),
   makeMessage(2, {
     message: 'Bold, italic, code and a link',
     entities: [
