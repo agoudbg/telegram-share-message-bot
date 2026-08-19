@@ -11,6 +11,7 @@ const BASE_ENV = {
   BOT_TOKEN: '123:abc',
   PUBLIC_ORIGIN: 'https://share.example.com/',
   BOT_USERNAME: '@mybot',
+  INTERNAL_MEDIA_SECRET: 'internal-test-secret',
 };
 
 describe('loadConfig', () => {
@@ -26,14 +27,22 @@ describe('loadConfig', () => {
       botUsername: 'mybot', // leading @ stripped
       miniAppShortName: undefined,
       dataDir: './data',
-      mediaHostLimitBytes: 500 * 1024 * 1024,
+      internalMediaPort: 3001,
+      internalMediaSecret: 'internal-test-secret',
       batchSilenceMs: 10000,
       testServer: false,
     });
   });
 
   it('requires API_ID/API_HASH/BOT_TOKEN/PUBLIC_ORIGIN/BOT_USERNAME', () => {
-    for (const key of ['API_ID', 'API_HASH', 'BOT_TOKEN', 'PUBLIC_ORIGIN', 'BOT_USERNAME']) {
+    for (const key of [
+      'API_ID',
+      'API_HASH',
+      'BOT_TOKEN',
+      'PUBLIC_ORIGIN',
+      'BOT_USERNAME',
+      'INTERNAL_MEDIA_SECRET',
+    ]) {
       const env = { ...BASE_ENV, [key]: '' };
       expect(() => loadConfig(env), key).toThrow(key);
     }

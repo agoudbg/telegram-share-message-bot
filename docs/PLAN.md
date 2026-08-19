@@ -111,23 +111,24 @@ Verified serialization facts:
   instantiates constructors from the fork's `AllTLObjects` table by
   `className`; the render path never calls TL binary methods, so this works
 
-### 2.5 Oversized-file fallback (optional threshold policy)
+### 2.5 On-demand Telegram media with a bounded local cache
 
-Media is downloaded and hosted by default, playable inline (no 20MB limit).
-To bound disk/bandwidth, files above a configurable threshold (default e.g.
-500MB) are not hosted:
+Share creation persists media metadata and refreshable MTProto locators, not
+file bytes. A locator contains the known incoming bot-dialog message id plus
+the current Document/Photo reference. On the first viewer request, the bot
+uses `messages.getMessages` to retrieve that exact known message id, refreshes
+the file reference, and streams the file to the HTTP server. Bots may use
+`messages.getMessages`; they may not enumerate history with
+`messages.getHistory`, so source message ids are mandatory.
 
-- The message is stored as usual; the media is flagged `hosted: false` and
-  only the InputDocument reference is kept
-- The web page renders an official-style placeholder bubble with a
-  "View in Telegram" button → deep link
-  `https://t.me/<bot>?start=get_<shareId>_<seq>`
-- The clicker lands in the PM with the bot and presses Start → the bot
-  verifies the share is public → **re-sends the file by reusing the
-  InputDocument reference** (a server-side copy inside Telegram; the bot
-  never downloads/uploads)
-- The deep-link flow inherently handles "user never started the bot"; add a
-  FloodWait queue and rate limiting
+- The HTTP server tails the growing download for the first viewer and commits
+  it atomically to a read-through cache when complete.
+- The cache defaults to a 24-hour idle TTL and a 5 GiB hard limit. Expired
+  entries are removed first; capacity pressure evicts LRU entries to 4 GiB.
+- Concurrent requests for the same media/variant share one Telegram download.
+- Full media, thumbnails, and resolvable origin avatars use the same cache.
+- The existing `get_<shareId>_<seq>` deep link remains a last-resort document
+  delivery path when the web download cannot be recovered.
 
 ### 2.6 Security (public pages only ever get sanitized copies)
 
@@ -260,16 +261,14 @@ layer is isolated so Postgres can replace it later.
   heuristically marked + persisted into the in-progress batch
 - Acceptance: fake-timer integration tests
 
-**Commit 8 — `feat(bot): media and avatar download pipeline`**
+**Commit 8 — `feat(bot): on-demand media source registration`**
 
-- downloadFile chunked to `data/media/<docOrPhotoId>`, dedup; thumbnail
-  extraction; mime/dimensions persisted; over-threshold media registered as
-  `hosted:false` + InputDocument reference; progress and retries for large
-  files
-- Avatars: downloadProfilePhoto when fwdFrom.fromId is resolvable;
-  unresolvable → frontend letter fallback; hidden users skipped
-- Acceptance: forward one image/video/file/oversized file each; on-disk,
-  dedup and registration all correct
+- Persist Document/Photo ids, exact incoming message ids, references, mime and
+  dimensions without downloading bytes during share creation.
+- Resolve forward origins and register avatar locators; unresolvable origins
+  continue to use the frontend letter fallback.
+- Acceptance: forwarding image/video/file messages writes metadata and source
+  rows while leaving the cache directory empty.
 
 **Commit 9 — `feat(bot): share creation, reply and oversized-file fallback`**
 

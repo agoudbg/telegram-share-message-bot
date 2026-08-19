@@ -114,7 +114,6 @@ function oversizedDocument(docId: string, withRef = true): TLJsonObject {
   };
 }
 
-const HOST_LIMIT = 1000;
 
 async function setup() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-app-'));
@@ -127,7 +126,6 @@ async function setup() {
       botUsername: 'mybot',
       miniAppShortName: 'view',
       batchSilenceMs: 2000,
-      mediaHostLimitBytes: HOST_LIMIT,
       dataDir,
     },
     db,
@@ -262,7 +260,6 @@ describe('BotApp', () => {
         botUsername: 'mybot',
         miniAppShortName: 'view',
         batchSilenceMs: 2000,
-        mediaHostLimitBytes: HOST_LIMIT,
         dataDir,
       },
       db,
@@ -302,7 +299,6 @@ describe('BotApp', () => {
         botUsername: 'mybot',
         miniAppShortName: 'view',
         batchSilenceMs: 2000,
-        mediaHostLimitBytes: HOST_LIMIT,
         dataDir,
       },
       db,
@@ -332,14 +328,14 @@ describe('BotApp', () => {
     expect(getShare(db, 'share_1')?.status).toBe('revoked');
   });
 
-  it('delivers unhosted files via /start get_<shareId>_<seq> with rate limiting', async () => {
+  it('delivers registered files via /start get_<shareId>_<seq> with rate limiting', async () => {
     const { app, db, texts, docs } = await trackedSetup();
     await app.handleMessage(forwardMessage('u1', 1, 100, oversizedDocument('doc1')));
     await app.handleDoneCallback('u1');
 
     const media = getMedia(db, 'doc1');
-    expect(media?.hosted).toBe(false);
-    expect(texts.at(-1)!.text).toContain('View in Telegram');
+    expect(media?.hosted).toBe(true);
+    expect(media?.path).toBeNull();
 
     // A viewer lands in the PM via the deep link
     await app.handleMessage(commandMessage('viewer', '/start get_share_1_0'));
@@ -355,13 +351,13 @@ describe('BotApp', () => {
     expect(texts.at(-1)!.text).toContain('Slow down');
   });
 
-  it('reports oversized files without a reference as unresendable', async () => {
+  it('reports registered files without a reference as unresendable', async () => {
     const { app, db, texts, docs } = await trackedSetup();
     await app.handleMessage(forwardMessage('u1', 1, 100, oversizedDocument('noref', false)));
     await app.handleDoneCallback('u1');
 
     const media = getMedia(db, 'noref');
-    expect(media?.hosted).toBe(false);
+    expect(media?.hosted).toBe(true);
     expect(media?.reference).toBeNull();
 
     await app.handleMessage(commandMessage('viewer', '/start get_share_1_0'));

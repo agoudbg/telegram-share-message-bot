@@ -8,6 +8,8 @@ export type { Batch, BatchCallbacks, BatchItem } from './batching.js';
 export { loadConfig } from './config.js';
 export type { BotConfig } from './config.js';
 export { createBotLogger } from './logging.js';
+export { startMediaOrigin } from './mediaOrigin.js';
+export type { MediaOriginOptions } from './mediaOrigin.js';
 export { MediaPipeline, extractForwardPeer, extractMediaInfo, withRetry } from './media.js';
 export type { MediaInfo, MediaProcessResult, RetryOptions } from './media.js';
 export type {

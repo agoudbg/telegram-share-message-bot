@@ -1,25 +1,29 @@
-// Media pipeline tests (Phase 2 Commit 8): extraction from TL JSON, host
-// limit registration, dedup, thumbnails, avatar fallback and retries.
+// On-demand media registration, source locator, avatar and retry tests.
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
-import { afterAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { openDatabase } from '@tbfb/server';
 import type { TLJsonObject } from '@tbfb/tlbridge';
 
 import type { Batch } from '../src/batching.js';
 import { MediaPipeline, extractForwardPeer, extractMediaInfo, withRetry } from '../src/media.js';
 import type { BotPorts, ResolvedPeer } from '../src/ports.js';
-import { getMedia, listPeers, createShare } from '@tbfb/server';
+import { createShare, getMedia, listMediaSources, listPeers } from '@tbfb/server';
 
 function photoMessage(photoId: string): TLJsonObject {
   return {
     className: 'Message',
     media: {
       className: 'MessageMediaPhoto',
-      photo: { className: 'Photo', id: { $long: photoId } },
+      photo: {
+        className: 'Photo',
+        id: { $long: photoId },
+        accessHash: { $long: '888' },
+        fileReference: { $bytes: 'cGhvdG8=' },
+        sizes: [
+          { className: 'PhotoSize', type: 's', w: 90, h: 90, size: 100 },
+          { className: 'PhotoSize', type: 'x', w: 800, h: 600, size: 5000 },
+        ],
+      },
     },
   };
 }
@@ -48,6 +52,9 @@ describe('extractMediaInfo', () => {
       kind: 'photo',
       key: '555',
       mime: 'image/jpeg',
+      size: 5000,
+      photoRef: { id: '555', accessHash: '888', fileReference: 'cGhvdG8=' },
+      hasThumbnail: true,
     });
   });
 
@@ -61,6 +68,7 @@ describe('extractMediaInfo', () => {
       width: 640,
       height: 360,
       documentRef: { id: '777', accessHash: '999', fileReference: 'aGk=' },
+      hasThumbnail: false,
     });
   });
 
@@ -170,38 +178,26 @@ describe('withRetry', () => {
 });
 
 describe('MediaPipeline', () => {
-  const dirs: string[] = [];
-
-  async function setup(hostLimitBytes: number) {
-    const mediaDir = await mkdtemp(path.join(tmpdir(), 'tbfb-media-'));
-    dirs.push(mediaDir);
+  async function setup() {
     const db = openDatabase(':memory:');
-    const downloads: string[] = [];
-    const host: Pick<
-      BotPorts,
-      'downloadMedia' | 'downloadThumb' | 'resolvePeer' | 'downloadAvatar'
-    > = {
-      downloadMedia: (_raw, dest) => {
-        downloads.push(path.basename(dest));
-        return Promise.resolve();
-      },
-      downloadThumb: () => Promise.resolve(true),
+    const host: Pick<BotPorts, 'resolvePeer'> = {
       resolvePeer: (peerId): Promise<ResolvedPeer | null> =>
         Promise.resolve(
-          peerId === 'unresolvable' ? null : { kind: 'channel', displayName: `Channel ${peerId}` },
+          peerId === 'unresolvable'
+            ? null
+            : {
+                kind: 'channel',
+                displayName: `Channel ${peerId}`,
+                hasAvatar: peerId !== 'noavatar',
+              },
         ),
-      downloadAvatar: (peerId) => Promise.resolve(peerId !== 'noavatar'),
     };
-    const pipeline = new MediaPipeline({ db, mediaDir, hostLimitBytes, host });
+    const pipeline = new MediaPipeline({ db, host });
     // Batches always have a share row in production (created at batch start);
     // the share_media links written by the pipeline reference it
     createShare(db, { id: 'share1', ownerUserId: 'u1' });
-    return { db, downloads, pipeline, mediaDir };
+    return { db, pipeline };
   }
-
-  afterAll(async () => {
-    await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
-  });
 
   function batch(items: Array<{ tlJson: TLJsonObject }>): Batch {
     return {
@@ -224,8 +220,8 @@ describe('MediaPipeline', () => {
     };
   }
 
-  it('downloads hosted media with thumbnails and registers unhosted oversized files', async () => {
-    const { db, downloads, pipeline } = await setup(1000);
+  it('registers media locators without downloading bytes', async () => {
+    const { db, pipeline } = await setup();
     const result = await pipeline.processBatch(
       batch([
         { tlJson: photoMessage('p1') },
@@ -235,52 +231,58 @@ describe('MediaPipeline', () => {
       ]),
     );
 
-    expect(result).toMatchObject({ hosted: 2, unhosted: 1, failed: 0 });
-    expect(downloads.sort()).toEqual(['d1', 'p1']);
+    expect(result).toMatchObject({ hosted: 3, unhosted: 0, failed: 0 });
 
     const hostedDoc = getMedia(db, 'd1');
     expect(hostedDoc).toMatchObject({
       hosted: true,
+      path: null,
       mime: 'video/mp4',
       width: 640,
       height: 360,
-      thumbPath: path.join('media', 'd1_thumb.jpg'),
+      thumbPath: null,
     });
 
     const big = getMedia(db, 'big1');
-    expect(big?.hosted).toBe(false);
+    expect(big?.hosted).toBe(true);
     expect(big?.path).toBeNull();
     expect(JSON.parse(big!.reference!)).toEqual({
       id: 'big1',
       accessHash: '999',
       fileReference: 'aGk=',
     });
+    expect(listMediaSources(db, 'big1')[0]).toMatchObject({
+      kind: 'document',
+      sourcePeerId: 'u1',
+      sourceMessageId: 3,
+    });
   });
 
-  it('registers oversized files without a reference distinctly', async () => {
-    const { db, pipeline } = await setup(1000);
+  it('registers a source message even when the current reference is missing', async () => {
+    const { db, pipeline } = await setup();
     const result = await pipeline.processBatch(
       batch([{ tlJson: documentMessage('noref', 5000, false) }]),
     );
-    expect(result).toMatchObject({ unhosted: 1, failed: 0 });
+    expect(result).toMatchObject({ hosted: 1, failed: 0 });
 
     const row = getMedia(db, 'noref');
-    expect(row?.hosted).toBe(false);
+    expect(row?.hosted).toBe(true);
     expect(row?.path).toBeNull();
     expect(row?.reference).toBeNull();
+    expect(listMediaSources(db, 'noref')).toHaveLength(1);
   });
 
   it('dedups repeated media keys without re-downloading', async () => {
-    const { db, downloads, pipeline } = await setup(1000);
+    const { db, pipeline } = await setup();
     const b = batch([{ tlJson: photoMessage('p1') }, { tlJson: photoMessage('p1') }]);
     const result = await pipeline.processBatch(b);
     expect(result).toMatchObject({ hosted: 1, deduped: 1 });
-    expect(downloads).toEqual(['p1']);
     expect(getMedia(db, 'p1')).not.toBeNull();
+    expect(listMediaSources(db, 'p1')).toHaveLength(2);
   });
 
   it('resolves origin avatars and skips unresolvable peers', async () => {
-    const { db, pipeline } = await setup(1000);
+    const { db, pipeline } = await setup();
     const fwd = (peerId: string): TLJsonObject => ({
       className: 'Message',
       fwdFrom: {
@@ -304,25 +306,4 @@ describe('MediaPipeline', () => {
     expect(getMedia(db, 'avatar_10')).toMatchObject({ hosted: true, mime: 'image/jpeg' });
   });
 
-  it('continues the batch when a single download fails', async () => {
-    const { db, mediaDir } = await setup(1000);
-    const failing = new MediaPipeline({
-      db,
-      mediaDir,
-      hostLimitBytes: 1000,
-      sleep: () => Promise.resolve(),
-      host: {
-        downloadMedia: (_raw, dest) =>
-          dest.endsWith('bad') ? Promise.reject(new Error('io error')) : Promise.resolve(),
-        downloadThumb: () => Promise.resolve(false),
-        resolvePeer: () => Promise.resolve(null),
-        downloadAvatar: () => Promise.resolve(false),
-      },
-    });
-    const result = await failing.processBatch(
-      batch([{ tlJson: photoMessage('bad') }, { tlJson: photoMessage('good') }]),
-    );
-    expect(result.failed).toBe(1);
-    expect(getMedia(db, 'good')).not.toBeNull();
-  });
 });

@@ -1,8 +1,13 @@
 /* global clearTimeout, console, process, setTimeout */
 
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 
 const FORCE_SHUTDOWN_MS = 10_000;
+const childEnvironment = {
+  ...process.env,
+  INTERNAL_MEDIA_SECRET: process.env.INTERNAL_MEDIA_SECRET || randomBytes(32).toString('base64url'),
+};
 const serviceDefinitions = [
   ['server', 'apps/server/dist/main.js'],
   ['bot', 'apps/bot/dist/main.js'],
@@ -11,7 +16,7 @@ const serviceDefinitions = [
 const services = serviceDefinitions.map(([name, entrypoint]) => ({
   name,
   process: spawn(process.execPath, [entrypoint], {
-    env: process.env,
+    env: childEnvironment,
     stdio: 'inherit',
   }),
 }));

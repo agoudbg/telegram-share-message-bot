@@ -13,13 +13,14 @@ export interface BotConfig {
   botUsername: string;
   miniAppShortName?: string;
   dataDir: string;
-  mediaHostLimitBytes: number;
+  internalMediaPort: number;
+  internalMediaSecret: string;
   batchSilenceMs: number;
   /** Connect to the Telegram test DCs instead of production (TELEGRAM_TEST_SERVER) */
   testServer: boolean;
 }
 
-const DEFAULT_MEDIA_HOST_LIMIT_BYTES = 500 * 1024 * 1024; // 500MB
+const DEFAULT_INTERNAL_MEDIA_PORT = 3001;
 const DEFAULT_BATCH_SILENCE_MS = 10000;
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -55,7 +56,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     botUsername: required(env, 'BOT_USERNAME').replace(/^@/, ''),
     miniAppShortName: env.MINIAPP_SHORT_NAME || undefined,
     dataDir: env.DATA_DIR || './data',
-    mediaHostLimitBytes: optionalInt(env, 'MEDIA_HOST_LIMIT_BYTES', DEFAULT_MEDIA_HOST_LIMIT_BYTES),
+    internalMediaPort: optionalInt(env, 'INTERNAL_MEDIA_PORT', DEFAULT_INTERNAL_MEDIA_PORT),
+    internalMediaSecret: required(env, 'INTERNAL_MEDIA_SECRET'),
     batchSilenceMs: optionalInt(env, 'BATCH_SILENCE_MS', DEFAULT_BATCH_SILENCE_MS),
     testServer: /^(1|true|yes)$/i.test(env.TELEGRAM_TEST_SERVER ?? ''),
   };

@@ -2,8 +2,6 @@
 // finalization and the oversized-file fallback (docs/PLAN.md, Phase 2
 // Commits 5/7/9). teleproto-free by design — main.ts wires the real ports.
 
-import path from 'node:path';
-
 import type { StorageDatabase } from '@tbfb/server';
 import {
   createShare,
@@ -63,8 +61,6 @@ export interface BotAppDeps {
     | 'botUsername'
     | 'miniAppShortName'
     | 'batchSilenceMs'
-    | 'mediaHostLimitBytes'
-    | 'dataDir'
   >;
   db: StorageDatabase;
   ports: BotPorts;
@@ -233,8 +229,8 @@ export class BotApp {
     }
 
     const media = getMedia(this.deps.db, info.key);
-    if (media === null || media.hosted) {
-      await this.deps.ports.sendText(chatId, 'That file is hosted — open the share link instead.');
+    if (media === null) {
+      await this.deps.ports.sendText(chatId, 'That file is not available.');
       return;
     }
     if (media.reference === null) {
@@ -268,7 +264,7 @@ export class BotApp {
     return queue;
   }
 
-  /** Batch finished: download media, resolve avatars, publish, reply. */
+  /** Batch finished: register media sources, resolve avatars, publish, reply. */
   private async finalizeBatch(batch: Batch): Promise<void> {
     const { ports, config } = this.deps;
     if (batch.items.length === 0) {
@@ -295,10 +291,7 @@ export class BotApp {
 
     const pipeline = new MediaPipeline({
       db: this.deps.db,
-      mediaDir: path.join(config.dataDir, 'media'),
-      hostLimitBytes: config.mediaHostLimitBytes,
       host: this.deps.ports,
-      sleep: this.deps.sleep,
       log: this.deps.log,
     });
 

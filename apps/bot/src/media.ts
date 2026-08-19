@@ -1,24 +1,21 @@
-// Media and avatar download pipeline (docs/PLAN.md, Phase 2 Commit 8).
+// On-demand media registration pipeline.
 //
-// - Media is downloaded chunked to <mediaDir>/<docOrPhotoId> with dedup
-//   (the media table key is the document/photo id)
-// - Files above the host limit are registered hosted:false with their
-//   InputDocument reference (re-sent server-side on demand, §2.5)
-// - Thumbnails, mime and dimensions are persisted alongside
-// - Avatars: resolved via the host port; unresolvable origins (channels the
-//   bot is not in) are skipped — the frontend falls back to letter avatars;
-//   hidden users never reach this pipeline (they only have a name string)
-
-import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
+// Binary data is never downloaded while a share is finalized. The database
+// stores a known incoming message id plus the current MTProto reference; the
+// media endpoint fetches and caches bytes only when a viewer requests them.
 
 import type { StorageDatabase } from '@tbfb/server';
-import { getMedia, insertMediaIfAbsent, linkMediaToShare, upsertPeer } from '@tbfb/server';
+import {
+  insertMediaIfAbsent,
+  linkMediaToShare,
+  upsertMediaSource,
+  upsertPeer,
+} from '@tbfb/server';
 import type { TLJsonObject, TLJsonValue } from '@tbfb/tlbridge';
 import { isTLJsonLong } from '@tbfb/tlbridge';
 
 import type { Batch } from './batching.js';
-import type { BotPorts, InputDocumentRef } from './ports.js';
+import type { BotPorts, InputDocumentRef, InputPhotoRef } from './ports.js';
 
 export interface MediaInfo {
   kind: 'photo' | 'document';
@@ -30,6 +27,8 @@ export interface MediaInfo {
   height?: number;
   /** Present for documents: everything needed for the hosted:false fallback */
   documentRef?: InputDocumentRef;
+  photoRef?: InputPhotoRef;
+  hasThumbnail: boolean;
 }
 
 function asObject(value: TLJsonValue | undefined): TLJsonObject | undefined {
@@ -58,7 +57,23 @@ export function extractMediaInfo(tlJson: TLJsonObject): MediaInfo | null {
     const photo = asObject(media.photo);
     if (photo?.className !== 'Photo') return null;
     const key = idToString(photo.id);
-    return key === undefined ? null : { kind: 'photo', key, mime: 'image/jpeg' };
+    if (key === undefined) return null;
+    const accessHash = idToString(photo.accessHash);
+    const fileReference = asObject(photo.fileReference);
+    const sizes = Array.isArray(photo.sizes) ? photo.sizes : [];
+    const largest = sizes.at(-1);
+    const largestSize = asObject(largest);
+    return {
+      kind: 'photo',
+      key,
+      mime: 'image/jpeg',
+      size: typeof largestSize?.size === 'number' ? largestSize.size : undefined,
+      photoRef:
+        accessHash !== undefined && typeof fileReference?.$bytes === 'string'
+          ? { id: key, accessHash, fileReference: fileReference.$bytes }
+          : undefined,
+      hasThumbnail: sizes.length >= 2,
+    };
   }
 
   if (media.className === 'MessageMediaDocument') {
@@ -72,6 +87,7 @@ export function extractMediaInfo(tlJson: TLJsonObject): MediaInfo | null {
       key,
       size: longToNumber(doc.size),
       mime: typeof doc.mimeType === 'string' ? doc.mimeType : undefined,
+      hasThumbnail: Array.isArray(doc.thumbs) && doc.thumbs.length > 0,
     };
 
     const attributes = Array.isArray(doc.attributes) ? doc.attributes : [];
@@ -164,11 +180,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
 
 export interface MediaPipelineDeps {
   db: StorageDatabase;
-  /** Absolute directory for media files (created on demand) */
-  mediaDir: string;
-  hostLimitBytes: number;
-  host: Pick<BotPorts, 'downloadMedia' | 'downloadThumb' | 'resolvePeer' | 'downloadAvatar'>;
-  sleep?: (ms: number) => Promise<void>;
+  host: Pick<BotPorts, 'resolvePeer'>;
   log?: (line: string) => void;
 }
 
@@ -183,13 +195,11 @@ export interface MediaProcessResult {
 export class MediaPipeline {
   constructor(private readonly deps: MediaPipelineDeps) {}
 
-  /** Download/register media for every batch item, then resolve origin
-   *  avatars. Individual failures never abort the batch. */
+  /** Register media locators for every batch item, then resolve origins. */
   async processBatch(
     batch: Batch,
     onProgress?: (text: string) => void,
   ): Promise<MediaProcessResult> {
-    await mkdir(this.deps.mediaDir, { recursive: true });
     const result: MediaProcessResult = {
       hosted: 0,
       unhosted: 0,
@@ -205,14 +215,14 @@ export class MediaPipeline {
       if (info === null) continue;
       onProgress?.(`Media ${index}/${batch.items.length}…`);
       try {
-        const outcome = await this.processOne(info, item.message.raw);
+        const outcome = this.processOne(info, item.message.chatId, item.message.messageId);
         // Link regardless of outcome: deduped rows still need the per-share
         // link so the API can enumerate this share's media
         linkMediaToShare(this.deps.db, batch.id, info.key);
         result[outcome] += 1;
       } catch (error) {
         result.failed += 1;
-        this.deps.log?.(`media download failed for key ${info.key}: ${String(error)}`);
+        this.deps.log?.(`media registration failed for key ${info.key}: ${String(error)}`);
       }
     }
 
@@ -220,61 +230,33 @@ export class MediaPipeline {
     return result;
   }
 
-  private async processOne(
+  private processOne(
     info: MediaInfo,
-    raw: unknown,
-  ): Promise<'hosted' | 'unhosted' | 'deduped'> {
-    const { db, hostLimitBytes } = this.deps;
-
-    // Oversized: register hosted:false + InputDocument reference, no
-    // download. Without a reference the file cannot be re-sent — the row is
-    // still registered (reference: null) so the fallback can say so
-    // explicitly instead of misreporting the file as hosted.
-    if (info.kind === 'document' && info.size !== undefined && info.size > hostLimitBytes) {
-      insertMediaIfAbsent(db, {
-        key: info.key,
-        hosted: false,
-        reference: info.documentRef === undefined ? null : JSON.stringify(info.documentRef),
-        size: info.size,
-        mime: info.mime ?? null,
-        width: info.width ?? null,
-        height: info.height ?? null,
-      });
-      return 'unhosted';
-    }
-
-    if (getMedia(db, info.key) !== null) return 'deduped';
-
-    const relPath = path.join('media', info.key);
-    const absPath = path.join(this.deps.mediaDir, info.key);
-    await withRetry(() => this.deps.host.downloadMedia(raw, absPath), { sleep: this.deps.sleep });
-
-    let thumbPath: string | null = null;
-    try {
-      const thumbRel = path.join('media', `${info.key}_thumb.jpg`);
-      if (
-        await this.deps.host.downloadThumb(
-          raw,
-          path.join(this.deps.mediaDir, `${info.key}_thumb.jpg`),
-        )
-      ) {
-        thumbPath = thumbRel;
-      }
-    } catch (error) {
-      this.deps.log?.(`thumbnail download failed for key ${info.key}: ${String(error)}`);
-    }
-
-    insertMediaIfAbsent(db, {
+    sourcePeerId: string,
+    sourceMessageId: number,
+  ): 'hosted' | 'unhosted' | 'deduped' {
+    const reference = info.documentRef ?? info.photoRef ?? null;
+    const inserted = insertMediaIfAbsent(this.deps.db, {
       key: info.key,
       hosted: true,
-      path: relPath,
+      path: null,
+      reference: info.documentRef === undefined ? null : JSON.stringify(info.documentRef),
       mime: info.mime ?? null,
       size: info.size ?? null,
       width: info.width ?? null,
       height: info.height ?? null,
-      thumbPath,
     });
-    return 'hosted';
+    upsertMediaSource(this.deps.db, {
+      mediaKey: info.key,
+      kind: info.kind,
+      sourcePeerId,
+      sourceMessageId,
+      reference:
+        reference === null
+          ? JSON.stringify({ hasThumbnail: info.hasThumbnail })
+          : JSON.stringify({ ...reference, hasThumbnail: info.hasThumbnail }),
+    });
+    return inserted ? 'hosted' : 'deduped';
   }
 
   private async processAvatars(batch: Batch): Promise<number> {
@@ -292,19 +274,22 @@ export class MediaPipeline {
 
         let avatarKey: string | null = null;
         const key = `avatar_${peerId}`;
-        if (getMedia(this.deps.db, key) !== null) {
+        if (resolved.hasAvatar) {
+          insertMediaIfAbsent(this.deps.db, {
+            key,
+            hosted: true,
+            path: null,
+            reference: JSON.stringify({ peerId }),
+            mime: 'image/jpeg',
+          });
+          upsertMediaSource(this.deps.db, {
+            mediaKey: key,
+            kind: 'avatar',
+            sourcePeerId: peerId,
+            sourceMessageId: 0,
+            reference: JSON.stringify({ peerId }),
+          });
           avatarKey = key;
-        } else {
-          const absPath = path.join(this.deps.mediaDir, key);
-          if (await this.deps.host.downloadAvatar(peerId, absPath)) {
-            insertMediaIfAbsent(this.deps.db, {
-              key,
-              hosted: true,
-              path: path.join('media', key),
-              mime: 'image/jpeg',
-            });
-            avatarKey = key;
-          }
         }
 
         upsertPeer(this.deps.db, {

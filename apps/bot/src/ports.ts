@@ -35,10 +35,18 @@ export interface InputDocumentRef {
   fileReference: string;
 }
 
+export interface InputPhotoRef {
+  id: string;
+  accessHash: string;
+  /** base64 */
+  fileReference: string;
+}
+
 export interface ResolvedPeer {
   kind: 'user' | 'chat' | 'channel';
   displayName: string;
   username?: string;
+  hasAvatar: boolean;
 }
 
 export interface BotPorts {

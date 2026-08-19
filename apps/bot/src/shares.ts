@@ -40,15 +40,8 @@ export function buildShareReply(
     `🔗 ${links.webUrl}`,
   ];
   if (links.directLink !== null) lines.push(`📱 ${links.directLink}`);
-  if (media.unhosted > 0) {
-    lines.push(
-      ``,
-      `ℹ️ ${media.unhosted} oversized file${media.unhosted === 1 ? '' : 's'} not hosted; ` +
-        `the page shows a "View in Telegram" button for ${media.unhosted === 1 ? 'it' : 'them'}.`,
-    );
-  }
   if (media.failed > 0) {
-    lines.push(`⚠️ ${media.failed} media download${media.failed === 1 ? '' : 's'} failed.`);
+    lines.push(`⚠️ ${media.failed} media registration${media.failed === 1 ? '' : 's'} failed.`);
   }
   return lines.join('\n');
 }

@@ -15,6 +15,7 @@ import { openDatabase, deleteStalePendingShares } from '@tbfb/server';
 import { BotApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createBotLogger } from './logging.js';
+import { startMediaOrigin } from './mediaOrigin.js';
 import type { BotPorts, InputDocumentRef, NormalizedMessage, ResolvedPeer } from './ports.js';
 import { loadSessionValue, persistSessionValue } from './session.js';
 
@@ -92,6 +93,14 @@ async function main(): Promise<void> {
   }
 
   const ports = createTeleprotoPorts(client);
+  const mediaOrigin = await startMediaOrigin({
+    db,
+    client,
+    port: config.internalMediaPort,
+    secret: config.internalMediaSecret,
+    log: (line) => console.error(`[media-origin] ${line}`),
+  });
+  console.log(`Media origin listening on 127.0.0.1:${config.internalMediaPort}.`);
   const app = new BotApp({
     config,
     db,
@@ -124,7 +133,9 @@ async function main(): Promise<void> {
   );
 
   const shutdown = (): void => {
-    void client.disconnect().then(() => process.exit(0));
+    mediaOrigin.close(() => {
+      void client.disconnect().then(() => process.exit(0));
+    });
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
@@ -226,13 +237,23 @@ function resolvedPeerFromEntity(entity: unknown): ResolvedPeer | null {
       kind: 'user',
       displayName: name !== '' ? name : (entity.username ?? 'User'),
       username: entity.username ?? undefined,
+      hasAvatar: !(entity.photo instanceof Api.UserProfilePhotoEmpty) && entity.photo !== undefined,
     };
   }
   if (entity instanceof Api.Channel) {
-    return { kind: 'channel', displayName: entity.title, username: entity.username ?? undefined };
+    return {
+      kind: 'channel',
+      displayName: entity.title,
+      username: entity.username ?? undefined,
+      hasAvatar: !(entity.photo instanceof Api.ChatPhotoEmpty) && entity.photo !== undefined,
+    };
   }
   if (entity instanceof Api.Chat) {
-    return { kind: 'chat', displayName: entity.title };
+    return {
+      kind: 'chat',
+      displayName: entity.title,
+      hasAvatar: !(entity.photo instanceof Api.ChatPhotoEmpty) && entity.photo !== undefined,
+    };
   }
   return null;
 }
