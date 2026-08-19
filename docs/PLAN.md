@@ -379,6 +379,29 @@ layer is isolated so Postgres can replace it later.
   self-publish via official api.tl + `generate:tl`
 - LICENSE GPL-3.0; complete README (privacy notice and known limitations)
 
+### Phase 6 — Share-view interaction hardening
+
+**Commit 22 — `fix(web): enforce share-view interaction policy`**
+
+- Define an explicit Share View allowlist: scrolling, text selection/copy,
+  media playback/viewing/download, safe external links, the generated
+  unhosted-media Telegram button, and same-share reply positioning.
+- The action dispatcher denies every other command while Share View is active;
+  component entry points also remove search, keyboard shortcuts, profile/chat
+  navigation, reactions, polls, message actions, and bot callbacks.
+- Acceptance: avatars, sender labels, keyboard shortcuts, ESC, reactions,
+  polls, inline callbacks, and internal navigation cannot change Share View
+  state; permitted media, copy, download, external-link, and reply actions
+  still work.
+
+**Commit 23 — `test(web): cover share-view interaction policy`**
+
+- Add desktop and mobile Playwright scenarios for the denied and allowed
+  behaviors above, asserting URL and active message list stability after each
+  denied action.
+- Acceptance: the interaction matrix passes alongside the existing visual
+  regression suite.
+
 ## 5. Maintainability design (hard constraints)
 
 1. **Physical separation**: injection code lives in `apps/web/src/api/share/`
