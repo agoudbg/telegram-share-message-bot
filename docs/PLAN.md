@@ -421,6 +421,14 @@ it later.
    after every upstream sync
 4. **Sanitization lives in exactly one place (tlbridge)**; raw data never
    leaves the server
+5. **Share dependency closure**: `tlbridge` owns the schema-aware peer-id
+   field registry used by both dependency collection and sanitization. The
+   public payload contains every referenced peer but never the forwarding
+   account identity or a real peer id.
+6. **Offline presentation dependencies**: Share View initializes both the
+   WebA fallback pack and a generated legacy-key compatibility pack. Account-
+   scoped visual catalogs use deterministic local presentation assets rather
+   than attempting authenticated Telegram requests from a public viewer.
 
 ## 6. Risks and open questions
 

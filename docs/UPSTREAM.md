@@ -62,6 +62,7 @@ After resolving the rebase, rebuild and run the full compatibility matrix:
 
 ```bash
 npm ci
+npm run lang:share-legacy
 npm run check:ts
 npm test
 npm run build:share
@@ -72,6 +73,17 @@ Inspect both desktop and mobile screenshot diffs. Update baselines only when
 the upstream visual change is intentional and the read-only behavior,
 forward origins, unhosted placeholder and all message-type fixtures remain
 correct.
+
+`lang:share-legacy` downloads the official English Android, iOS, TDesktop and
+macOS exports, merges them with the same precedence as WebA's legacy runtime,
+and retains keys referenced by the current source tree. Commit the regenerated
+`src/assets/localization/shareLegacy.json` whenever upstream changes visible
+legacy localization calls.
+
+When a new message constructor carries peer ids, update the shared
+`packages/tlbridge/src/peerReferences.ts` registry instead of adding a
+frontend-only peer workaround. The same registry must drive collection and
+sanitization so public payload completeness and id anonymization cannot drift.
 
 Publish the rebased fork with lease protection, then record its new gitlink
 in the main repository:
