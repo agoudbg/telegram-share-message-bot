@@ -12,7 +12,7 @@ import {
   upsertPeer,
 } from '@tbfb/server';
 import type { TLJsonObject, TLJsonValue } from '@tbfb/tlbridge';
-import { isTLJsonLong } from '@tbfb/tlbridge';
+import { collectReferencedPeers, isTLJsonLong } from '@tbfb/tlbridge';
 
 import type { Batch } from './batching.js';
 import type { BotPorts, InputDocumentRef, InputPhotoRef } from './ports.js';
@@ -116,26 +116,14 @@ export function extractMediaInfo(tlJson: TLJsonObject): MediaInfo | null {
   return null;
 }
 
-/** Extract the forward-origin peer (for avatar resolution) from a TL JSON
- *  message; null for non-forwards and hidden users (name-only origins). */
+/** Extract only the first-hop forward origin. Retained as a narrow public
+ *  helper; share finalization uses `collectReferencedPeers` for the complete
+ *  dependency graph. */
 export function extractForwardPeer(
   tlJson: TLJsonObject,
 ): { peerId: string; kind: 'user' | 'chat' | 'channel' } | null {
-  const fwd = asObject(tlJson.fwdFrom);
-  const fromId = asObject(fwd?.fromId);
-  if (fromId === undefined) return null;
-  const pairs = [
-    ['PeerUser', 'userId', 'user'],
-    ['PeerChat', 'chatId', 'chat'],
-    ['PeerChannel', 'channelId', 'channel'],
-  ] as const;
-  for (const [className, field, kind] of pairs) {
-    if (fromId.className === className) {
-      const peerId = idToString(fromId[field]);
-      return peerId === undefined ? null : { peerId, kind };
-    }
-  }
-  return null;
+  const fwdFrom = asObject(tlJson.fwdFrom);
+  return fwdFrom === undefined ? null : collectReferencedPeers(fwdFrom)[0] || null;
 }
 
 export interface RetryOptions {
@@ -262,8 +250,9 @@ export class MediaPipeline {
   private async processAvatars(batch: Batch): Promise<number> {
     const seen = new Map<string, 'user' | 'chat' | 'channel'>();
     for (const item of batch.items) {
-      const peer = extractForwardPeer(item.message.tlJson);
-      if (peer !== null && !seen.has(peer.peerId)) seen.set(peer.peerId, peer.kind);
+      collectReferencedPeers(item.message.tlJson).forEach(({ peerId, kind }) => {
+        if (!seen.has(peerId)) seen.set(peerId, kind);
+      });
     }
 
     let count = 0;

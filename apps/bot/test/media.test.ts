@@ -5,7 +5,7 @@ import { openDatabase } from '@tbfb/server';
 import type { TLJsonObject } from '@tbfb/tlbridge';
 
 import type { Batch } from '../src/batching.js';
-import { MediaPipeline, extractForwardPeer, extractMediaInfo, withRetry } from '../src/media.js';
+import { MediaPipeline, extractMediaInfo, withRetry } from '../src/media.js';
 import type { BotPorts, ResolvedPeer } from '../src/ports.js';
 import { createShare, getMedia, listMediaSources, listPeers } from '@tbfb/server';
 
@@ -80,40 +80,6 @@ describe('extractMediaInfo', () => {
         media: { className: 'MessageMediaPhoto', photo: { className: 'PhotoEmpty' } },
       }),
     ).toBeNull();
-  });
-});
-
-describe('extractForwardPeer', () => {
-  it('extracts user/chat/channel origins', () => {
-    const base = { className: 'Message' };
-    expect(
-      extractForwardPeer({
-        ...base,
-        fwdFrom: {
-          className: 'MessageFwdHeader',
-          fromId: { className: 'PeerUser', userId: { $long: '1' } },
-        },
-      }),
-    ).toEqual({ peerId: '1', kind: 'user' });
-    expect(
-      extractForwardPeer({
-        ...base,
-        fwdFrom: {
-          className: 'MessageFwdHeader',
-          fromId: { className: 'PeerChannel', channelId: { $long: '2' } },
-        },
-      }),
-    ).toEqual({ peerId: '2', kind: 'channel' });
-  });
-
-  it('returns null for hidden users and non-forwards', () => {
-    expect(
-      extractForwardPeer({
-        className: 'Message',
-        fwdFrom: { className: 'MessageFwdHeader', fromName: 'Hidden' },
-      }),
-    ).toBeNull();
-    expect(extractForwardPeer({ className: 'Message' })).toBeNull();
   });
 });
 
@@ -304,6 +270,24 @@ describe('MediaPipeline', () => {
       avatarKey: 'avatar_10',
     });
     expect(getMedia(db, 'avatar_10')).toMatchObject({ hosted: true, mime: 'image/jpeg' });
+  });
+
+  it('resolves all peers referenced by special-message payloads', async () => {
+    const { db, pipeline } = await setup();
+    const result = await pipeline.processBatch(batch([{
+      tlJson: {
+        className: 'Message',
+        peerId: { className: 'PeerUser', userId: { $long: 'forwarder' } },
+        media: {
+          className: 'MessageMediaGiveawayResults',
+          channelId: { $long: '20' },
+          winners: [{ $long: '30' }, { $long: '31' }],
+        },
+      },
+    }]));
+
+    expect(result.avatars).toBe(3);
+    expect(listPeers(db, 'share1').map((peer) => peer.peerId)).toEqual(['20', '30', '31']);
   });
 
 });

@@ -17,6 +17,11 @@
 
 import type { TLJsonObject, TLJsonValue } from './types.js';
 import { isTLJsonLong } from './types.js';
+import {
+  BARE_PEER_ID_FIELDS,
+  BARE_PEER_ID_VECTOR_FIELDS,
+  PEER_WRAPPER_ID_FIELDS,
+} from './peerReferences.js';
 
 /** SHA-256, pure TS isomorphic implementation (the package is shared with the
  *  frontend, so node:crypto is not available here). */
@@ -124,22 +129,12 @@ export interface SanitizerOptions {
 
 const STRIPPED_KEYS = new Set(['accessHash', 'fileReference', 'dcId']);
 
-/** The id field name inside Peer* wrapper objects */
-const PEER_ID_FIELDS: Record<string, string> = {
-  PeerUser: 'userId',
-  PeerChat: 'chatId',
-  PeerChannel: 'channelId',
-};
-
 /** Entities whose id is bound to a real identity and must be remapped */
 const ENTITY_CLASSES = new Set(['User', 'Chat', 'Channel', 'Photo', 'Document']);
 
 /** Message classes: peerId/fromId/savedPeerId are replaced with the virtual
  *  peer (forwarder erasure) */
 const MESSAGE_CLASSES = new Set(['Message', 'MessageService']);
-
-/** Bare int64 peer id fields that can appear anywhere (not Peer*-wrapped) */
-const BARE_ID_KEYS = new Set(['userId', 'chatId', 'channelId', 'viaBotId', 'viaBusinessBotId']);
 
 const FAKE_ID_BASE = 1n << 62n;
 const FAKE_ID_SPAN = 1n << 62n;
@@ -199,12 +194,12 @@ export function createSanitizer(options: SanitizerOptions): TLSanitizer {
     const className = obj.className;
 
     // Peer* wrapper: remap its inner id field
-    const peerIdField = className !== undefined ? PEER_ID_FIELDS[className] : undefined;
-    if (peerIdField !== undefined) {
+    const peerWrapper = className !== undefined ? PEER_WRAPPER_ID_FIELDS[className] : undefined;
+    if (peerWrapper !== undefined) {
       const out: TLJsonObject = { className };
       for (const [key, value] of Object.entries(obj)) {
         if (key === 'className' || value === undefined) continue;
-        out[key] = key === peerIdField ? remapIdValue(value) : sanitizeValue(value);
+        out[key] = key === peerWrapper.field ? remapIdValue(value) : sanitizeValue(value);
       }
       return out;
     }
@@ -225,8 +220,14 @@ export function createSanitizer(options: SanitizerOptions): TLSanitizer {
         out[key] = virtualPeer;
         continue;
       }
-      if (BARE_ID_KEYS.has(key) && (isTLJsonLong(value) || typeof value === 'number')) {
+      if (BARE_PEER_ID_FIELDS[key] !== undefined && (isTLJsonLong(value) || typeof value === 'number')) {
         out[key] = remapIdValue(value);
+        continue;
+      }
+      if (BARE_PEER_ID_VECTOR_FIELDS[key] !== undefined && Array.isArray(value)) {
+        out[key] = value.map((item) => (
+          isTLJsonLong(item) || typeof item === 'number' ? remapIdValue(item) : sanitizeValue(item)
+        ));
         continue;
       }
       out[key] = sanitizeValue(value);

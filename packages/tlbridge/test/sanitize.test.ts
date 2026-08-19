@@ -73,6 +73,24 @@ describe('createSanitizer', () => {
     expect(out.id).toBe(123);
   });
 
+  it('remaps bare peer-id vectors used by special messages', () => {
+    const s = createSanitizer({ shareSecret: 'share-a', virtualChatPeerId: '999' });
+    const out = s.sanitize({
+      className: 'Message',
+      media: {
+        className: 'MessageMediaGiveawayResults',
+        channelId: { $long: '100' },
+        winners: [{ $long: '200' }, { $long: '201' }],
+      },
+    }) as any;
+
+    expect(out.media.channelId.$long).toBe(s.fakeId('100'));
+    expect(out.media.winners.map((winner: { $long: string }) => winner.$long)).toEqual([
+      s.fakeId('200'),
+      s.fakeId('201'),
+    ]);
+  });
+
   it('hidden origin users: fromName is preserved as-is', () => {
     const msg = makeForwardedMessage();
     delete (msg.fwdFrom as TLJsonObject).fromId;
