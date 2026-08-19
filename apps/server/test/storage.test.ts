@@ -10,17 +10,24 @@ import {
   createShare,
   deleteStalePendingShares,
   finalizeShare,
+  deleteMediaCache,
+  getMediaCache,
   getMedia,
   getMessage,
   getShare,
   insertMediaIfAbsent,
   insertMessage,
   linkMediaToShare,
+  listMediaCache,
+  listMediaSources,
   listMessages,
   listPeers,
   listShareMedia,
   revokeShare,
   rewriteMessageSeqs,
+  touchMediaCache,
+  upsertMediaCache,
+  upsertMediaSource,
   upsertPeer,
 } from '../src/storage/repository.js';
 
@@ -52,7 +59,15 @@ describe('openDatabase', () => {
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(tables).toEqual(['media', 'messages', 'peers', 'share_media', 'shares']);
+    expect(tables).toEqual([
+      'media',
+      'media_cache',
+      'media_sources',
+      'messages',
+      'peers',
+      'share_media',
+      'shares',
+    ]);
   });
 });
 
@@ -182,6 +197,48 @@ describe('media', () => {
 
     expect(listShareMedia(db, 's1').map((m) => m.key)).toEqual(['123']);
     expect(listShareMedia(db, 's2').map((m) => m.key)).toEqual(['123', '456']);
+  });
+
+  it('stores multiple refreshable sources and orders the newest first', () => {
+    const db = freshDb();
+    insertMediaIfAbsent(db, { key: '123', mime: 'video/mp4' });
+    upsertMediaSource(db, {
+      mediaKey: '123',
+      kind: 'document',
+      sourcePeerId: 'u1',
+      sourceMessageId: 10,
+      reference: '{"version":1}',
+      createdAt: 100,
+    });
+    upsertMediaSource(db, {
+      mediaKey: '123',
+      kind: 'document',
+      sourcePeerId: 'u2',
+      sourceMessageId: 20,
+      reference: '{"version":2}',
+      createdAt: 200,
+    });
+
+    expect(listMediaSources(db, '123').map((source) => source.sourceMessageId)).toEqual([20, 10]);
+  });
+
+  it('tracks cache entries and their LRU access time', () => {
+    const db = freshDb();
+    insertMediaIfAbsent(db, { key: '123' });
+    upsertMediaCache(db, {
+      mediaKey: '123',
+      variant: 'full',
+      path: 'cache/media/hash',
+      size: 42,
+      cachedAt: 100,
+      lastAccessedAt: 100,
+    });
+    touchMediaCache(db, '123', 'full', 200);
+
+    expect(getMediaCache(db, '123', 'full')).toMatchObject({ size: 42, lastAccessedAt: 200 });
+    expect(listMediaCache(db)).toHaveLength(1);
+    deleteMediaCache(db, '123', 'full');
+    expect(getMediaCache(db, '123', 'full')).toBeNull();
   });
 });
 

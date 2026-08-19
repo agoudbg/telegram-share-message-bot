@@ -34,6 +34,27 @@ export interface MediaRow {
   thumbPath: string | null;
 }
 
+export type MediaSourceKind = 'document' | 'photo' | 'avatar';
+export type MediaCacheVariant = 'full' | 'thumb' | 'avatar';
+
+export interface MediaSourceRow {
+  mediaKey: string;
+  kind: MediaSourceKind;
+  sourcePeerId: string;
+  sourceMessageId: number;
+  reference: string | null;
+  createdAt: number;
+}
+
+export interface MediaCacheRow {
+  mediaKey: string;
+  variant: MediaCacheVariant;
+  path: string;
+  size: number;
+  cachedAt: number;
+  lastAccessedAt: number;
+}
+
 export type PeerKind = 'user' | 'chat' | 'channel';
 
 export interface PeerRow {
@@ -206,6 +227,113 @@ export function insertMediaIfAbsent(
 export function getMedia(db: StorageDatabase, key: string): MediaRow | null {
   const row = db.prepare(`SELECT * FROM media WHERE key = ?`).get(key) as any;
   return row === undefined ? null : toMediaRow(row);
+}
+
+/** Record another message capable of refreshing a Telegram media reference. */
+export function upsertMediaSource(
+  db: StorageDatabase,
+  source: Omit<MediaSourceRow, 'createdAt'> & { createdAt?: number },
+): void {
+  db.prepare(
+    `INSERT INTO media_sources
+       (media_key, kind, source_peer_id, source_message_id, reference, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (media_key, kind, source_peer_id, source_message_id) DO UPDATE SET
+       reference = COALESCE(excluded.reference, media_sources.reference),
+       created_at = excluded.created_at`,
+  ).run(
+    source.mediaKey,
+    source.kind,
+    source.sourcePeerId,
+    source.sourceMessageId,
+    source.reference,
+    source.createdAt ?? Math.floor(Date.now() / 1000),
+  );
+}
+
+/** Newest sources are tried first; older duplicates provide deletion fallback. */
+export function listMediaSources(db: StorageDatabase, mediaKey: string): MediaSourceRow[] {
+  const rows = db
+    .prepare(`SELECT * FROM media_sources WHERE media_key = ? ORDER BY created_at DESC`)
+    .all(mediaKey) as any[];
+  return rows.map((row) => ({
+    mediaKey: row.media_key,
+    kind: row.kind,
+    sourcePeerId: row.source_peer_id,
+    sourceMessageId: row.source_message_id,
+    reference: row.reference,
+    createdAt: row.created_at,
+  }));
+}
+
+export function upsertMediaCache(db: StorageDatabase, cache: MediaCacheRow): void {
+  db.prepare(
+    `INSERT INTO media_cache
+       (media_key, variant, path, size, cached_at, last_accessed_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (media_key, variant) DO UPDATE SET
+       path = excluded.path,
+       size = excluded.size,
+       cached_at = excluded.cached_at,
+       last_accessed_at = excluded.last_accessed_at`,
+  ).run(
+    cache.mediaKey,
+    cache.variant,
+    cache.path,
+    cache.size,
+    cache.cachedAt,
+    cache.lastAccessedAt,
+  );
+}
+
+export function getMediaCache(
+  db: StorageDatabase,
+  mediaKey: string,
+  variant: MediaCacheVariant,
+): MediaCacheRow | null {
+  const row = db
+    .prepare(`SELECT * FROM media_cache WHERE media_key = ? AND variant = ?`)
+    .get(mediaKey, variant) as any;
+  return row === undefined ? null : toMediaCacheRow(row);
+}
+
+export function listMediaCache(db: StorageDatabase): MediaCacheRow[] {
+  return (db.prepare(`SELECT * FROM media_cache ORDER BY last_accessed_at ASC`).all() as any[]).map(
+    toMediaCacheRow,
+  );
+}
+
+export function touchMediaCache(
+  db: StorageDatabase,
+  mediaKey: string,
+  variant: MediaCacheVariant,
+  lastAccessedAt = Math.floor(Date.now() / 1000),
+): void {
+  db.prepare(
+    `UPDATE media_cache SET last_accessed_at = ? WHERE media_key = ? AND variant = ?`,
+  ).run(lastAccessedAt, mediaKey, variant);
+}
+
+export function deleteMediaCache(
+  db: StorageDatabase,
+  mediaKey: string,
+  variant: MediaCacheVariant,
+): void {
+  db.prepare(`DELETE FROM media_cache WHERE media_key = ? AND variant = ?`).run(
+    mediaKey,
+    variant,
+  );
+}
+
+function toMediaCacheRow(row: any): MediaCacheRow {
+  return {
+    mediaKey: row.media_key,
+    variant: row.variant,
+    path: row.path,
+    size: row.size,
+    cachedAt: row.cached_at,
+    lastAccessedAt: row.last_accessed_at,
+  };
 }
 
 /** Record that a share references a media row (idempotent). Media rows are

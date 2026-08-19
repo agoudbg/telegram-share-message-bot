@@ -71,4 +71,31 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: 'on-demand media sources and cache',
+    sql: `
+      CREATE TABLE media_sources (
+        media_key TEXT NOT NULL REFERENCES media(key) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('document', 'photo', 'avatar')),
+        source_peer_id TEXT NOT NULL,
+        source_message_id INTEGER NOT NULL,
+        reference TEXT,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (media_key, kind, source_peer_id, source_message_id)
+      );
+
+      CREATE TABLE media_cache (
+        media_key TEXT NOT NULL REFERENCES media(key) ON DELETE CASCADE,
+        variant TEXT NOT NULL CHECK (variant IN ('full', 'thumb', 'avatar')),
+        path TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        cached_at INTEGER NOT NULL,
+        last_accessed_at INTEGER NOT NULL,
+        PRIMARY KEY (media_key, variant)
+      );
+
+      CREATE INDEX media_cache_lru_idx ON media_cache(last_accessed_at);
+    `,
+  },
 ];
