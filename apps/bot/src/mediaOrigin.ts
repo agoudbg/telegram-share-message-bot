@@ -109,7 +109,6 @@ async function handleRequest(
   const headers: Record<string, string> = {
     'Content-Type': media.mime ?? 'application/octet-stream',
   };
-  if (variant === 'full' && media.size !== null) headers['Content-Length'] = String(media.size);
   if (variant === 'thumb') {
     const bytes = await options.client.downloadMedia(located.message, { thumb: thumb! });
     if (!Buffer.isBuffer(bytes) || bytes.length === 0) {

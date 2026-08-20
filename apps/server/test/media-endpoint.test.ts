@@ -221,6 +221,54 @@ describe('GET /media/:shareId/:key', () => {
     expect((await app.request(`/media/${SHARE_ID}/${fake888}`)).status).toBe(404);
   });
 
+  it('does not expose a stale database size before a cold download completes', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-server-remote-'));
+    dirs.push(dataDir);
+    const db = openDatabase(':memory:');
+    createShare(db, { id: SHARE_ID, ownerUserId: 'u1' });
+    insertMediaIfAbsent(db, {
+      key: 'stale-size',
+      hosted: true,
+      path: null,
+      mime: 'text/plain',
+      size: 999,
+    });
+    upsertMediaSource(db, {
+      mediaKey: 'stale-size',
+      kind: 'document',
+      sourcePeerId: 'u1',
+      sourceMessageId: 8,
+      reference: '{}',
+    });
+    linkMediaToShare(db, SHARE_ID, 'stale-size');
+    finalizeShare(db, SHARE_ID);
+
+    const cache = new MediaCache({
+      db,
+      dataDir,
+      origin: {
+        fetch: () => Promise.resolve(new Response(CONTENT, {
+          headers: { 'Content-Type': 'text/plain' },
+        })),
+      },
+      maxBytes: 1024,
+      lowWatermarkBytes: 768,
+      ttlSeconds: 86400,
+      sweepIntervalSeconds: 3600,
+    });
+    caches.push(cache);
+    const app = createServerApp({ db, sanitizeSecret: SECRET, dataDir, mediaCache: cache });
+    const fakeKey = sanitizeMediaKey(createShareSanitizer(SECRET, SHARE_ID), 'stale-size');
+
+    const response = await app.request(`/media/${SHARE_ID}/${fakeKey}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Length')).toBeNull();
+    expect(await response.text()).toBe(CONTENT);
+
+    const cached = await app.request(`/media/${SHARE_ID}/${fakeKey}`);
+    expect(cached.headers.get('Content-Length')).toBe(String(CONTENT.length));
+  });
+
   it('refuses legacy hosted media larger than the configured cache limit', async () => {
     const { db, dataDir, fakeKey, url } = await setup();
     const app = createServerApp({

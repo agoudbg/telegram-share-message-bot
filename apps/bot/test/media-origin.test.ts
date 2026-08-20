@@ -25,7 +25,7 @@ afterAll(async () => {
 describe('media origin', () => {
   it('retrieves the exact known message id before downloading media', async () => {
     const db = openDatabase(':memory:');
-    insertMediaIfAbsent(db, { key: '123', hosted: true, mime: 'text/plain', size: 5 });
+    insertMediaIfAbsent(db, { key: '123', hosted: true, mime: 'text/plain', size: 999 });
     upsertMediaSource(db, {
       mediaKey: '123',
       kind: 'document',
@@ -82,6 +82,7 @@ describe('media origin', () => {
       { headers: { Authorization: 'Bearer test-secret' } },
     );
     expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Length')).toBeNull();
     expect(await response.text()).toBe('hello');
     expect(requestedId).toBe(77);
   });

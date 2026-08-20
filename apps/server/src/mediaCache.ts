@@ -145,7 +145,7 @@ export class MediaCache {
     await task.ready;
     return {
       contentType: task.contentType,
-      size: task.totalSize ?? media.size,
+      size: task.totalSize,
       stream: (start, end) => growingFileStream(task!, start, end),
     };
   }
@@ -195,7 +195,7 @@ export class MediaCache {
       relativeFinalPath,
       bytesWritten: 0,
       contentType: variant === 'full' ? (media.mime ?? 'application/octet-stream') : 'application/octet-stream',
-      totalSize: variant === 'full' ? media.size : null,
+      totalSize: null,
       complete: false,
       error: null,
       reservedBytes: 0,
