@@ -169,6 +169,10 @@ previous message's (`next < prev`) → mark `nestedForward` → render it in
 
 - Share pages are public by default; random unguessable share ids; `/delete`
   revokes (404)
+- Every Share View message list begins with an English service notice warning
+  that messages may have been excerpted, mixed, or tampered with and are for
+  reference only. Its `Learn More` link opens the GitHub-hosted authenticity
+  help page in the system browser.
 - telegram-tt is GPL-3.0-or-later → the repo is published as GPL-3.0
 - Avatars: fetched via `downloadProfilePhoto` when the origin is resolvable;
   unresolvable origins (e.g. channels the bot is not in) fall back to letter
