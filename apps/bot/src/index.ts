@@ -3,6 +3,7 @@
 
 export { BotApp } from './app.js';
 export type { BotAppDeps } from './app.js';
+export { BOT_COMMANDS, registerBotCommands } from './commands.js';
 export { BatchManager, createForwardTracker, sortAlbumItems } from './batching.js';
 export type { Batch, BatchCallbacks, BatchItem } from './batching.js';
 export { loadConfig } from './config.js';

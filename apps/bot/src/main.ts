@@ -14,6 +14,7 @@ import { openDatabase, deleteStalePendingShares } from '@tbfb/server';
 
 import { BotApp } from './app.js';
 import { loadConfig } from './config.js';
+import { registerBotCommands } from './commands.js';
 import { createBotLogger } from './logging.js';
 import { startMediaOrigin } from './mediaOrigin.js';
 import type { BotPorts, InputDocumentRef, NormalizedMessage, ResolvedPeer } from './ports.js';
@@ -77,6 +78,8 @@ async function main(): Promise<void> {
   });
 
   await client.start({ botAuthToken: config.botToken });
+  await registerBotCommands(client);
+  console.log('Bot commands registered.');
   console.log(`Bot connected (${config.testServer ? 'Telegram TEST servers' : 'production'}).`);
 
   // Persist into the data volume when configured; local development can keep
