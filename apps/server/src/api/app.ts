@@ -74,6 +74,7 @@ export interface ServerAppDeps {
   mediaCache?: MediaCache;
   maxHostedMediaBytes?: number;
   mediaGovernor?: MediaRequestGovernor;
+  trustProxy?: boolean;
 }
 
 function mediaUrl(shareId: string, fakeKey: string): string {

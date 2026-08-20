@@ -57,9 +57,11 @@ Prerequisites:
 - A bot token and Mini App configured through
   [@BotFather](https://t.me/BotFather)
 
-Build the application from source, run the bot and API under systemd, and let
-the host Nginx instance own public ports and TLS. The API listens on
-`127.0.0.1:3000`; Nginx serves WebA and proxies `/api/` and `/media/`.
+The recommended deployment builds from source, runs the bot and API under
+systemd, and lets the host's existing reverse proxy own ports 80/443 and TLS.
+The API defaults to `127.0.0.1:3000`; the supplied Nginx example serves the
+WebA build and proxies `/api/` and `/media/` without exposing the application
+port.
 
 Set `PUBLIC_ORIGIN` to the final HTTPS origin without a trailing slash. In
 BotFather, create a named Web App for the bot, set its URL to that origin and
@@ -67,10 +69,8 @@ put its short name in `MINIAPP_SHORT_NAME`. Share replies then include both
 `PUBLIC_ORIGIN/s/<shareId>` and
 `t.me/<bot>/<short-name>?startapp=<shareId>` links.
 
-The production data directory contains SQLite, the disposable media cache,
-logs and the persisted MTProto StringSession. See
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for source installation, systemd,
-Nginx, upgrades, rollback, backup and restore details.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete source installation,
+systemd, Nginx, upgrade, rollback, backup and restore procedures.
 
 ## Local Development
 

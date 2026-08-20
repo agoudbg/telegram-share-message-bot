@@ -4,8 +4,8 @@
 export interface ServerConfig {
   /** Base directory holding tbfb.db and media/ (shared with the bot) */
   dataDir: string;
-  /** Interface exposed by the HTTP server; loopback keeps Nginx as the only
-   *  public entry point. */
+  /** Interface exposed by the public HTTP server. Defaults to loopback so a
+   *  reverse proxy remains the only public entry point. */
   host: string;
   port: number;
   /** Server-side secret keying the per-share fake-id HMAC. Combined with the
@@ -27,6 +27,7 @@ export interface ServerConfig {
   mediaRequestBurst: number;
   mediaBandwidthBytesPerSecond: number;
   mediaBandwidthBurstBytes: number;
+  trustProxy: boolean;
 }
 
 const DEFAULT_PORT = 3000;
@@ -42,6 +43,14 @@ function positiveInt(env: NodeJS.ProcessEnv, name: string, fallback: number): nu
     throw new Error(`Environment variable ${name} must be a positive integer, got ${raw}`);
   }
   return value;
+}
+
+function booleanFlag(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === '1' || raw === 'true') return true;
+  if (raw === '0' || raw === 'false') return false;
+  throw new Error(`Environment variable ${name} must be 0, 1, false, or true, got ${raw}`);
 }
 
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -94,5 +103,6 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       'MEDIA_BANDWIDTH_BURST_BYTES',
       16 * 1024 * 1024,
     ),
+    trustProxy: booleanFlag(env, 'TRUST_PROXY', false),
   };
 }

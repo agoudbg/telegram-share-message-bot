@@ -63,12 +63,13 @@ DATA_DIR=/var/lib/telegram-batch-forwarding-bot
 SESSION_FILE=/var/lib/telegram-batch-forwarding-bot/session.txt
 INTERNAL_MEDIA_PORT=3001
 INTERNAL_MEDIA_SECRET=replace-with-an-independent-random-secret
+TRUST_PROXY=1
 ```
 
-Generate `SANITIZE_SECRET` and `INTERNAL_MEDIA_SECRET` independently, for
-example with `openssl rand -base64 48`. Keep `SANITIZE_SECRET` stable across
-restores: changing it changes the public fake ids derived for every share.
-`SESSION` may be left unset when `SESSION_FILE` is configured.
+Generate both secrets independently, for example with
+`openssl rand -base64 48`. Keep `SANITIZE_SECRET` stable across restores:
+changing it changes the public fake ids derived for every share. `SESSION`
+may be left unset when `SESSION_FILE` is configured.
 
 ```bash
 sudo chown root:tbfb /etc/telegram-batch-forwarding-bot.env
@@ -97,7 +98,8 @@ sudo systemctl reload nginx
 The example intentionally owns only the virtual host; use the host's existing
 TLS automation to add its certificate and HTTPS listener. It serves the WebA
 build directly and proxies only `/api/` and `/media/` to the loopback server.
-Never expose port 3000 publicly.
+It overwrites client-IP headers, which is required before enabling
+`TRUST_PROXY=1`. Never expose port 3000 publicly while that flag is enabled.
 
 ### Logs and lifecycle
 
@@ -144,7 +146,7 @@ sudo systemctl start telegram-batch-forwarding-bot
 ```
 
 Back up `/etc/telegram-batch-forwarding-bot.env` in the same encrypted backup
-set. The media cache is intentionally excluded; Telegram repopulates it from
-the source locators stored in `tbfb.db`. To restore, stop the service, restore
-the complete data directory and environment file, repair ownership to
-`tbfb:tbfb`, then start the service and check `/healthz`.
+set. The media cache is disposable and intentionally excluded; Telegram
+repopulates it from the source locators stored in `tbfb.db`. To restore, stop
+the service, restore the complete data directory and environment file, repair
+ownership to `tbfb:tbfb`, then start the service and check `/healthz`.

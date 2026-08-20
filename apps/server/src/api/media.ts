@@ -9,6 +9,7 @@
 
 import { createReadStream } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
@@ -29,6 +30,7 @@ export interface MediaRouteDeps {
   mediaCache?: MediaCache;
   maxHostedMediaBytes?: number;
   mediaGovernor?: MediaRequestGovernor;
+  trustProxy?: boolean;
 }
 
 /** Media keys are content-stable (document/photo ids), so responses are
@@ -75,7 +77,7 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     const access = checkShareAccess(deps.db, shareId);
     if (access === 'not_found') return c.json({ error: 'not_found' }, 404);
     if (access === 'revoked') return c.json({ error: 'revoked' }, 410);
-    const clientId = getClientId(c);
+    const clientId = getClientId(c, deps.trustProxy === true);
     if (deps.mediaGovernor !== undefined && !deps.mediaGovernor.allowRequest(shareId, clientId)) {
       return c.json({ error: 'rate_limited' }, 429, { 'Retry-After': '1' });
     }
@@ -223,12 +225,42 @@ function streamHandle(
   );
 }
 
-function getClientId(c: Context): string {
-  const forwarded = c.req.header('cf-connecting-ip')
-    ?? c.req.header('x-forwarded-for')?.split(',')[0]
-    ?? c.req.header('x-real-ip')
-    ?? 'unknown';
-  return forwarded.trim().slice(0, 128) || 'unknown';
+interface ClientAddressInput {
+  remoteAddress?: string;
+  forwardedFor?: string;
+}
+
+interface NodeRequestBindings {
+  incoming?: {
+    socket?: {
+      remoteAddress?: unknown;
+    };
+  };
+  server?: NodeRequestBindings;
+}
+
+export function resolveMediaClientId(input: ClientAddressInput, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwardedAddress = input.forwardedFor?.split(',')[0]?.trim();
+    if (forwardedAddress !== undefined && isIP(forwardedAddress) !== 0) {
+      return forwardedAddress;
+    }
+  }
+  const remoteAddress = input.remoteAddress?.trim();
+  return remoteAddress !== undefined && isIP(remoteAddress) !== 0 ? remoteAddress : 'unknown';
+}
+
+function getClientId(c: Context, trustProxy: boolean): string {
+  const environment = (c.env ?? {}) as NodeRequestBindings;
+  const bindings = environment.server ?? environment;
+  const remoteAddress = bindings.incoming?.socket?.remoteAddress;
+  return resolveMediaClientId(
+    {
+      remoteAddress: typeof remoteAddress === 'string' ? remoteAddress : undefined,
+      forwardedFor: c.req.header('x-forwarded-for'),
+    },
+    trustProxy,
+  );
 }
 
 function toWebStream(

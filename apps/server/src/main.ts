@@ -57,6 +57,7 @@ function main(): void {
     mediaCache,
     maxHostedMediaBytes: config.mediaCacheMaxBytes,
     mediaGovernor,
+    trustProxy: config.trustProxy,
   });
 
   serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {

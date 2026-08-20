@@ -8,6 +8,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { createServerApp } from '../src/api/app.js';
+import { resolveMediaClientId } from '../src/api/media.js';
 import { MediaCache } from '../src/mediaCache.js';
 import { MediaRequestGovernor } from '../src/mediaGovernor.js';
 import { createShareSanitizer, sanitizeMediaKey } from '../src/api/sanitize.js';
@@ -35,6 +36,30 @@ const WEBP_THUMB = Buffer.concat([
 
 const dirs: string[] = [];
 const caches: MediaCache[] = [];
+
+describe('resolveMediaClientId', () => {
+  it('ignores forwarded addresses unless the proxy is explicitly trusted', () => {
+    const addresses = {
+      remoteAddress: '198.51.100.10',
+      forwardedFor: '203.0.113.20, 192.0.2.30',
+    };
+
+    expect(resolveMediaClientId(addresses, false)).toBe('198.51.100.10');
+    expect(resolveMediaClientId(addresses, true)).toBe('203.0.113.20');
+  });
+
+  it('falls back to the socket address for an invalid forwarded value', () => {
+    expect(
+      resolveMediaClientId(
+        {
+          remoteAddress: '198.51.100.10',
+          forwardedFor: 'spoofed-client',
+        },
+        true,
+      ),
+    ).toBe('198.51.100.10');
+  });
+});
 
 async function setup() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-server-'));
