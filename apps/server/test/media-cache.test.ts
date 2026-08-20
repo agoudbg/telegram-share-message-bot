@@ -61,6 +61,37 @@ describe('MediaCache', () => {
     await cache.sweep();
     expect(getMediaCache(db, 'm2', 'full')).toBeNull();
   });
+
+  it('aborts an unknown-size response before it can exceed the hard limit', async () => {
+    const origin = new ChunkedOrigin([Buffer.from('12345678'), Buffer.from('overflow')]);
+    const { cache, db, dataDir } = await setupWithOrigin(origin, {
+      maxBytes: 10,
+      lowWatermarkBytes: 8,
+    });
+    const media = insertMedia(db, 'unknown', null);
+
+    await expect(read(cache, media)).rejects.toThrow('Media origin returned 507');
+    expect(origin.cancelled).toBe(true);
+    expect(getMediaCache(db, 'unknown', 'full')).toBeNull();
+    expect(await cacheFiles(dataDir)).toEqual([]);
+  });
+
+  it('aborts a response larger than the database-declared size', async () => {
+    const origin = new ChunkedOrigin(
+      [Buffer.from('12345678'), Buffer.from('overflow')],
+      16,
+    );
+    const { cache, db, dataDir } = await setupWithOrigin(origin, {
+      maxBytes: 10,
+      lowWatermarkBytes: 8,
+    });
+    const media = insertMedia(db, 'stale-size', 8);
+
+    await expect(read(cache, media)).rejects.toThrow('Media origin returned 507');
+    expect(origin.cancelled).toBe(true);
+    expect(getMediaCache(db, 'stale-size', 'full')).toBeNull();
+    expect(await cacheFiles(dataDir)).toEqual([]);
+  });
 });
 
 async function setup(
@@ -72,10 +103,21 @@ async function setup(
     now: () => number;
   }> = {},
 ) {
+  return setupWithOrigin(new FakeOrigin(bodies), overrides);
+}
+
+async function setupWithOrigin(
+  origin: MediaOriginClient,
+  overrides: Partial<{
+    maxBytes: number;
+    lowWatermarkBytes: number;
+    ttlSeconds: number;
+    now: () => number;
+  }> = {},
+) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-cache-'));
   dirs.push(dataDir);
   const db = openDatabase(':memory:');
-  const origin = new FakeOrigin(bodies);
   const cache = new MediaCache({
     db,
     dataDir,
@@ -87,10 +129,10 @@ async function setup(
     now: overrides.now,
   });
   caches.push(cache);
-  return { cache, db, origin };
+  return { cache, db, dataDir, origin };
 }
 
-function insertMedia(db: ReturnType<typeof openDatabase>, key: string, size: number) {
+function insertMedia(db: ReturnType<typeof openDatabase>, key: string, size: number | null) {
   insertMediaIfAbsent(db, { key, hosted: true, mime: 'text/plain', size });
   upsertMediaSource(db, {
     mediaKey: key,
@@ -125,4 +167,34 @@ class FakeOrigin implements MediaOriginClient {
           }),
     );
   }
+}
+
+class ChunkedOrigin implements MediaOriginClient {
+  cancelled = false;
+
+  constructor(
+    private readonly chunks: Buffer[],
+    private readonly contentLength?: number,
+  ) {}
+
+  fetch(): Promise<Response> {
+    const chunks = [...this.chunks];
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks.shift();
+        if (chunk !== undefined) controller.enqueue(chunk);
+      },
+      cancel: () => {
+        this.cancelled = true;
+      },
+    });
+    const headers: Record<string, string> = { 'Content-Type': 'text/plain' };
+    if (this.contentLength !== undefined) headers['Content-Length'] = String(this.contentLength);
+    return Promise.resolve(new Response(stream, { headers }));
+  }
+}
+
+async function cacheFiles(dataDir: string): Promise<string[]> {
+  const { readdir } = await import('node:fs/promises');
+  return readdir(path.join(dataDir, 'cache', 'media'));
 }

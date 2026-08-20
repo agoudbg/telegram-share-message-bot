@@ -122,7 +122,8 @@ export class MediaCache {
       let starting = this.starts.get(taskKey);
       if (starting === undefined) {
         starting = (async () => {
-          const reservedBytes = await this.reserve(media.size ?? 0);
+          const expectedBytes = variant === 'full' ? (media.size ?? 0) : 0;
+          const reservedBytes = await this.reserve(expectedBytes);
           const created = this.createTask(media, variant);
           created.reservedBytes = reservedBytes;
           this.tasks.set(taskKey, created);
@@ -208,6 +209,7 @@ export class MediaCache {
   private async runTask(media: MediaRow, task: FetchTask): Promise<void> {
     await this.acquireFetchSlot();
     let file: Awaited<ReturnType<typeof open>> | null = null;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
       file = await open(task.finalPath, 'w');
       const response = await this.options.origin.fetch(task.key, task.variant);
@@ -215,14 +217,19 @@ export class MediaCache {
         throw new MediaFetchError(response.status, response.headers.get('Retry-After') ?? undefined);
       }
       task.contentType = response.headers.get('Content-Type') ?? task.contentType;
-      const contentLength = Number(response.headers.get('Content-Length'));
-      if (Number.isSafeInteger(contentLength) && contentLength >= 0) task.totalSize = contentLength;
+      reader = response.body.getReader();
+      const contentLengthHeader = response.headers.get('Content-Length');
+      const contentLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
+      if (contentLength !== null && Number.isSafeInteger(contentLength) && contentLength >= 0) {
+        await this.expandReservation(task, contentLength);
+        task.totalSize = contentLength;
+      }
       task.resolveReady();
 
-      const reader = response.body.getReader();
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        await this.expandReservation(task, task.bytesWritten + value.byteLength);
         await file.write(value, 0, value.byteLength, task.bytesWritten);
         task.bytesWritten += value.byteLength;
         notify(task);
@@ -233,6 +240,8 @@ export class MediaCache {
         throw new Error(`Telegram media size mismatch: expected ${task.totalSize}, got ${task.bytesWritten}`);
       }
       const now = this.nowSeconds();
+      this.reservedBytes -= task.reservedBytes;
+      task.reservedBytes = 0;
       upsertMediaCache(this.options.db, {
         mediaKey: task.key,
         variant: task.variant,
@@ -246,10 +255,11 @@ export class MediaCache {
       await this.evictTo(this.options.maxBytes);
     } catch (error) {
       task.error = error;
-      task.rejectReady(error);
-      notify(task);
+      await reader?.cancel(error).catch(() => undefined);
       await file?.close().catch(() => undefined);
       await unlink(task.finalPath).catch(() => undefined);
+      task.rejectReady(error);
+      notify(task);
     } finally {
       this.releaseFetchSlot();
     }
@@ -275,6 +285,41 @@ export class MediaCache {
 
   private async reserve(expectedBytes: number): Promise<number> {
     if (expectedBytes > this.options.maxBytes) throw new MediaFetchError(507);
+    await this.withCapacityLock(async () => {
+      await this.ensureCapacity(expectedBytes);
+      this.reservedBytes += expectedBytes;
+    });
+    return expectedBytes;
+  }
+
+  private async expandReservation(task: FetchTask, requiredBytes: number): Promise<void> {
+    if (requiredBytes <= task.reservedBytes) return;
+    if (requiredBytes > this.options.maxBytes) throw new MediaFetchError(507);
+    await this.withCapacityLock(async () => {
+      const additionalBytes = requiredBytes - task.reservedBytes;
+      await this.ensureCapacity(additionalBytes);
+      this.reservedBytes += additionalBytes;
+      task.reservedBytes = requiredBytes;
+    });
+  }
+
+  private async ensureCapacity(additionalBytes: number): Promise<void> {
+    const current = listMediaCache(this.options.db).reduce((sum, entry) => sum + entry.size, 0);
+    if (current + this.reservedBytes + additionalBytes > this.options.maxBytes) {
+      await this.evictTo(
+        Math.max(0, this.options.lowWatermarkBytes - this.reservedBytes - additionalBytes),
+      );
+    }
+    const afterEviction = listMediaCache(this.options.db).reduce(
+      (sum, entry) => sum + entry.size,
+      0,
+    );
+    if (afterEviction + this.reservedBytes + additionalBytes > this.options.maxBytes) {
+      throw new MediaFetchError(503, '5');
+    }
+  }
+
+  private async withCapacityLock<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.capacityTail;
     let release!: () => void;
     this.capacityTail = new Promise<void>((resolve) => {
@@ -282,21 +327,7 @@ export class MediaCache {
     });
     await previous;
     try {
-      const current = listMediaCache(this.options.db).reduce((sum, entry) => sum + entry.size, 0);
-      if (current + this.reservedBytes + expectedBytes > this.options.maxBytes) {
-        await this.evictTo(
-          Math.max(0, this.options.lowWatermarkBytes - this.reservedBytes - expectedBytes),
-        );
-      }
-      const afterEviction = listMediaCache(this.options.db).reduce(
-        (sum, entry) => sum + entry.size,
-        0,
-      );
-      if (afterEviction + this.reservedBytes + expectedBytes > this.options.maxBytes) {
-        throw new MediaFetchError(503, '5');
-      }
-      this.reservedBytes += expectedBytes;
-      return expectedBytes;
+      return await operation();
     } finally {
       release();
     }
