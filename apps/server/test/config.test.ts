@@ -19,6 +19,11 @@ describe('loadServerConfig', () => {
       mediaCacheTtlSeconds: 86400,
       mediaCacheSweepIntervalSeconds: 300,
       mediaFetchConcurrency: 2,
+      mediaDownloadTimeoutMs: 120000,
+      mediaRequestsPerMinute: 120,
+      mediaRequestBurst: 20,
+      mediaBandwidthBytesPerSecond: 8 * 1024 * 1024,
+      mediaBandwidthBurstBytes: 16 * 1024 * 1024,
     });
   });
 

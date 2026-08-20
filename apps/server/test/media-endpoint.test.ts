@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { createServerApp } from '../src/api/app.js';
 import { MediaCache } from '../src/mediaCache.js';
+import { MediaRequestGovernor } from '../src/mediaGovernor.js';
 import { createShareSanitizer, sanitizeMediaKey } from '../src/api/sanitize.js';
 import { openDatabase } from '../src/storage/database.js';
 import {
@@ -280,6 +281,29 @@ describe('GET /media/:shareId/:key', () => {
 
     expect(fakeKey).toBeTruthy();
     expect((await app.request(url)).status).toBe(404);
+  });
+
+  it('rate limits public media requests per share and client', async () => {
+    const { db, dataDir, url } = await setup();
+    const governor = new MediaRequestGovernor({
+      requestsPerMinute: 60,
+      requestBurst: 1,
+      bandwidthBytesPerSecond: 1024,
+      bandwidthBurstBytes: 1024,
+    });
+    const app = createServerApp({
+      db,
+      sanitizeSecret: SECRET,
+      dataDir,
+      mediaGovernor: governor,
+    });
+
+    const first = await app.request(url, { headers: { 'CF-Connecting-IP': '192.0.2.1' } });
+    expect(first.status).toBe(200);
+    await first.arrayBuffer();
+    const limited = await app.request(url, { headers: { 'CF-Connecting-IP': '192.0.2.1' } });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBe('1');
   });
 
   it('answers 404 for pending shares and 410 for revoked ones', async () => {

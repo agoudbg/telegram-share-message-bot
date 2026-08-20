@@ -126,6 +126,8 @@ the file reference, and streams the file to the HTTP server. Bots may use
 - The cache defaults to a 24-hour idle TTL and a 5 GiB hard limit. Expired
   entries are removed first; capacity pressure evicts LRU entries to 4 GiB.
 - Concurrent requests for the same media/variant share one Telegram download.
+- Telegram downloads time out and are cancelled when their last viewer disconnects.
+- Public media requests and bandwidth use independent per-share and per-client token buckets.
 - Full media, thumbnails, and resolvable origin avatars use the same cache.
 - The existing `get_<shareId>_<seq>` deep link remains a last-resort document
   delivery path when the web download cannot be recovered.

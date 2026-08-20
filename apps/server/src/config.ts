@@ -22,6 +22,11 @@ export interface ServerConfig {
   mediaCacheTtlSeconds: number;
   mediaCacheSweepIntervalSeconds: number;
   mediaFetchConcurrency: number;
+  mediaDownloadTimeoutMs: number;
+  mediaRequestsPerMinute: number;
+  mediaRequestBurst: number;
+  mediaBandwidthBytesPerSecond: number;
+  mediaBandwidthBurstBytes: number;
 }
 
 const DEFAULT_PORT = 3000;
@@ -76,5 +81,18 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     mediaCacheTtlSeconds: positiveInt(env, 'MEDIA_CACHE_TTL_SECONDS', 86400),
     mediaCacheSweepIntervalSeconds: positiveInt(env, 'MEDIA_CACHE_SWEEP_INTERVAL_SECONDS', 300),
     mediaFetchConcurrency: positiveInt(env, 'MEDIA_FETCH_CONCURRENCY', 2),
+    mediaDownloadTimeoutMs: positiveInt(env, 'MEDIA_DOWNLOAD_TIMEOUT_MS', 120_000),
+    mediaRequestsPerMinute: positiveInt(env, 'MEDIA_REQUESTS_PER_MINUTE', 120),
+    mediaRequestBurst: positiveInt(env, 'MEDIA_REQUEST_BURST', 20),
+    mediaBandwidthBytesPerSecond: positiveInt(
+      env,
+      'MEDIA_BANDWIDTH_BYTES_PER_SECOND',
+      8 * 1024 * 1024,
+    ),
+    mediaBandwidthBurstBytes: positiveInt(
+      env,
+      'MEDIA_BANDWIDTH_BURST_BYTES',
+      16 * 1024 * 1024,
+    ),
   };
 }

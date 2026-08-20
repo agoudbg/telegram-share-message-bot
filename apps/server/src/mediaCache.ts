@@ -24,7 +24,7 @@ import {
 import type { MediaCacheVariant, MediaRow } from './storage/repository.js';
 
 export interface MediaOriginClient {
-  fetch(mediaKey: string, variant: MediaCacheVariant): Promise<Response>;
+  fetch(mediaKey: string, variant: MediaCacheVariant, signal?: AbortSignal): Promise<Response>;
 }
 
 export interface MediaCacheOptions {
@@ -36,6 +36,7 @@ export interface MediaCacheOptions {
   ttlSeconds: number;
   sweepIntervalSeconds: number;
   maxConcurrentFetches?: number;
+  downloadTimeoutMs?: number;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -43,7 +44,7 @@ export interface MediaCacheOptions {
 export interface CachedMediaHandle {
   contentType: string;
   size: number | null;
-  stream(start: number, end?: number): Readable;
+  stream(start: number, end?: number, signal?: AbortSignal): Readable;
 }
 
 interface FetchTask {
@@ -61,6 +62,9 @@ interface FetchTask {
   resolveReady: () => void;
   rejectReady: (error: unknown) => void;
   listeners: Set<() => void>;
+  consumers: Set<AbortSignal>;
+  consumerAbortHandlers: Map<AbortSignal, () => void>;
+  abortController: AbortController;
 }
 
 export class MediaFetchError extends Error {
@@ -95,9 +99,14 @@ export class MediaCache {
 
   close(): void {
     clearInterval(this.timer);
+    for (const task of this.tasks.values()) task.abortController.abort(new Error('Media cache closed'));
   }
 
-  async open(media: MediaRow, variant: MediaCacheVariant): Promise<CachedMediaHandle> {
+  async open(
+    media: MediaRow,
+    variant: MediaCacheVariant,
+    signal?: AbortSignal,
+  ): Promise<CachedMediaHandle> {
     await this.initPromise;
     const cached = getMediaCache(this.options.db, media.key, variant);
     if (cached !== null) {
@@ -109,7 +118,7 @@ export class MediaCache {
         return {
           contentType: variant === 'full' ? (media.mime ?? 'application/octet-stream') : await sniffImageMime(absolute),
           size: file.size,
-          stream: (start, end) => createReadStream(absolute, { start, end }),
+          stream: (start, end, signal) => createReadStream(absolute, { start, end, signal }),
         };
       } catch {
         deleteMediaCache(this.options.db, media.key, variant);
@@ -142,11 +151,17 @@ export class MediaCache {
       }
       task = await starting;
     }
-    await task.ready;
+    if (signal !== undefined) this.attachConsumer(task, signal);
+    try {
+      await task.ready;
+    } catch (error) {
+      if (signal !== undefined) this.detachConsumer(task, signal);
+      throw error;
+    }
     return {
       contentType: task.contentType,
       size: task.totalSize,
-      stream: (start, end) => growingFileStream(task!, start, end),
+      stream: (start, end, signal) => this.createGrowingStream(task!, start, end, signal),
     };
   }
 
@@ -203,16 +218,68 @@ export class MediaCache {
       resolveReady,
       rejectReady,
       listeners: new Set(),
+      consumers: new Set(),
+      consumerAbortHandlers: new Map(),
+      abortController: new AbortController(),
     };
+  }
+
+  private createGrowingStream(
+    task: FetchTask,
+    start: number,
+    end?: number,
+    signal?: AbortSignal,
+  ): Readable {
+    if (signal !== undefined) {
+      this.attachConsumer(task, signal);
+      const stream = growingFileStream(task, start, end, signal);
+      const removeConsumer = () => {
+        this.detachConsumer(task, signal);
+      };
+      stream.once('end', removeConsumer);
+      stream.once('close', removeConsumer);
+      return stream;
+    }
+    return growingFileStream(task, start, end, signal);
+  }
+
+  private attachConsumer(task: FetchTask, signal: AbortSignal): void {
+    if (task.consumers.has(signal)) return;
+    task.consumers.add(signal);
+    const handleAbort = () => {
+      this.detachConsumer(task, signal);
+      if (!task.complete && task.consumers.size === 0) {
+        task.abortController.abort(signal.reason);
+      }
+    };
+    task.consumerAbortHandlers.set(signal, handleAbort);
+    if (signal.aborted) handleAbort();
+    else signal.addEventListener('abort', handleAbort, { once: true });
+  }
+
+  private detachConsumer(task: FetchTask, signal: AbortSignal): void {
+    const handleAbort = task.consumerAbortHandlers.get(signal);
+    if (handleAbort !== undefined) signal.removeEventListener('abort', handleAbort);
+    task.consumerAbortHandlers.delete(signal);
+    task.consumers.delete(signal);
   }
 
   private async runTask(media: MediaRow, task: FetchTask): Promise<void> {
     await this.acquireFetchSlot();
     let file: Awaited<ReturnType<typeof open>> | null = null;
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    const timeout = setTimeout(
+      () => task.abortController.abort(new MediaFetchError(504, '5')),
+      this.options.downloadTimeoutMs ?? 120_000,
+    );
+    timeout.unref();
     try {
       file = await open(task.finalPath, 'w');
-      const response = await this.options.origin.fetch(task.key, task.variant);
+      const response = await this.options.origin.fetch(
+        task.key,
+        task.variant,
+        task.abortController.signal,
+      );
       if (!response.ok || response.body === null) {
         throw new MediaFetchError(response.status, response.headers.get('Retry-After') ?? undefined);
       }
@@ -261,6 +328,7 @@ export class MediaCache {
       task.rejectReady(error);
       notify(task);
     } finally {
+      clearTimeout(timeout);
       this.releaseFetchSlot();
     }
   }
@@ -369,15 +437,20 @@ export class HttpMediaOriginClient implements MediaOriginClient {
     private readonly secret: string,
   ) {}
 
-  fetch(mediaKey: string, variant: MediaCacheVariant): Promise<Response> {
+  fetch(mediaKey: string, variant: MediaCacheVariant, signal?: AbortSignal): Promise<Response> {
     return fetch(
       `http://127.0.0.1:${this.port}/internal/media/${encodeURIComponent(mediaKey)}?variant=${variant}`,
-      { headers: { Authorization: `Bearer ${this.secret}` } },
+      { headers: { Authorization: `Bearer ${this.secret}` }, signal },
     );
   }
 }
 
-function growingFileStream(task: FetchTask, start: number, end?: number): Readable {
+function growingFileStream(
+  task: FetchTask,
+  start: number,
+  end?: number,
+  signal?: AbortSignal,
+): Readable {
   return Readable.from(
     (async function* () {
       let position = start;
@@ -403,6 +476,7 @@ function growingFileStream(task: FetchTask, start: number, end?: number): Readab
           await waitForProgress(task);
       }
     })(),
+    { signal },
   );
 }
 

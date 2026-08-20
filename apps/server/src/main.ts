@@ -10,6 +10,7 @@ import { createServerApp } from './api/app.js';
 import { loadServerConfig } from './config.js';
 import { openDatabase } from './storage/database.js';
 import { HttpMediaOriginClient, MediaCache } from './mediaCache.js';
+import { MediaRequestGovernor } from './mediaGovernor.js';
 
 /** Load the first .env found walking up from the cwd. */
 function loadEnvFile(): void {
@@ -39,7 +40,14 @@ function main(): void {
     ttlSeconds: config.mediaCacheTtlSeconds,
     sweepIntervalSeconds: config.mediaCacheSweepIntervalSeconds,
     maxConcurrentFetches: config.mediaFetchConcurrency,
+    downloadTimeoutMs: config.mediaDownloadTimeoutMs,
     log: (line) => console.error(`[media-cache] ${line}`),
+  });
+  const mediaGovernor = new MediaRequestGovernor({
+    requestsPerMinute: config.mediaRequestsPerMinute,
+    requestBurst: config.mediaRequestBurst,
+    bandwidthBytesPerSecond: config.mediaBandwidthBytesPerSecond,
+    bandwidthBurstBytes: config.mediaBandwidthBurstBytes,
   });
   const app = createServerApp({
     db,
@@ -48,6 +56,7 @@ function main(): void {
     botUsername: config.botUsername,
     mediaCache,
     maxHostedMediaBytes: config.mediaCacheMaxBytes,
+    mediaGovernor,
   });
 
   serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {

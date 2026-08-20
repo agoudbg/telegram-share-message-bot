@@ -17,6 +17,7 @@ import type { Context, Hono } from 'hono';
 import type { StorageDatabase } from '../storage/database.js';
 import { MediaFetchError } from '../mediaCache.js';
 import type { MediaCache } from '../mediaCache.js';
+import type { MediaRequestGovernor } from '../mediaGovernor.js';
 import { checkShareAccess } from './gate.js';
 import { createShareSanitizer, resolveMediaKey } from './sanitize.js';
 
@@ -27,6 +28,7 @@ export interface MediaRouteDeps {
   dataDir: string;
   mediaCache?: MediaCache;
   maxHostedMediaBytes?: number;
+  mediaGovernor?: MediaRequestGovernor;
 }
 
 /** Media keys are content-stable (document/photo ids), so responses are
@@ -73,6 +75,10 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     const access = checkShareAccess(deps.db, shareId);
     if (access === 'not_found') return c.json({ error: 'not_found' }, 404);
     if (access === 'revoked') return c.json({ error: 'revoked' }, 410);
+    const clientId = getClientId(c);
+    if (deps.mediaGovernor !== undefined && !deps.mediaGovernor.allowRequest(shareId, clientId)) {
+      return c.json({ error: 'rate_limited' }, 429, { 'Retry-After': '1' });
+    }
 
     const sanitizer = createShareSanitizer(deps.sanitizeSecret, shareId);
     const media = resolveMediaKey(deps.db, sanitizer, shareId, key);
@@ -87,12 +93,15 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     if (relPath === null && deps.mediaCache !== undefined) {
       try {
         const variant = media.key.startsWith('avatar_') ? 'avatar' : thumb ? 'thumb' : 'full';
-        const cached = await deps.mediaCache.open(media, variant);
+        const cached = await deps.mediaCache.open(media, variant, c.req.raw.signal);
         return streamHandle(
           c,
           cached,
           c.req.header('range'),
           media.key.startsWith('avatar_') ? AVATAR_CACHE_CONTROL : CACHE_CONTROL,
+          deps.mediaGovernor,
+          shareId,
+          clientId,
         );
       } catch (error) {
         if (error instanceof MediaFetchError) {
@@ -149,7 +158,14 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     const status = range === null ? 200 : 206;
     if (range !== null) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
 
-    const stream = Readable.toWeb(createReadStream(absPath, { start, end })) as ReadableStream;
+    const source = createReadStream(absPath, { start, end, signal: c.req.raw.signal });
+    const stream = toWebStream(
+      source,
+      deps.mediaGovernor,
+      shareId,
+      clientId,
+      c.req.raw.signal,
+    );
     return c.body(stream, status, headers);
   });
 }
@@ -166,6 +182,9 @@ function streamHandle(
   handle: Awaited<ReturnType<MediaCache['open']>>,
   rangeHeader: string | undefined,
   cacheControl: string,
+  governor: MediaRequestGovernor | undefined,
+  shareId: string,
+  clientId: string,
 ) {
   const headers: Record<string, string> = {
     'Content-Type': handle.contentType,
@@ -173,7 +192,11 @@ function streamHandle(
     'Cache-Control': cacheControl,
   };
   if (handle.size === null) {
-    return c.body(Readable.toWeb(handle.stream(0)) as ReadableStream, 200, headers);
+    return c.body(
+      toWebStream(handle.stream(0, undefined, c.req.raw.signal), governor, shareId, clientId, c.req.raw.signal),
+      200,
+      headers,
+    );
   }
   if (handle.size === 0) {
     headers['Content-Length'] = '0';
@@ -188,10 +211,45 @@ function streamHandle(
   const status = range === null ? 200 : 206;
   if (range !== null) headers['Content-Range'] = `bytes ${start}-${end}/${handle.size}`;
   return c.body(
-    Readable.toWeb(handle.stream(start, end)) as ReadableStream,
+    toWebStream(
+      handle.stream(start, end, c.req.raw.signal),
+      governor,
+      shareId,
+      clientId,
+      c.req.raw.signal,
+    ),
     status,
     headers,
   );
+}
+
+function getClientId(c: Context): string {
+  const forwarded = c.req.header('cf-connecting-ip')
+    ?? c.req.header('x-forwarded-for')?.split(',')[0]
+    ?? c.req.header('x-real-ip')
+    ?? 'unknown';
+  return forwarded.trim().slice(0, 128) || 'unknown';
+}
+
+function toWebStream(
+  source: Readable,
+  governor: MediaRequestGovernor | undefined,
+  shareId: string,
+  clientId: string,
+  signal: AbortSignal,
+): ReadableStream {
+  if (governor === undefined) return Readable.toWeb(source) as ReadableStream;
+  const throttled = Readable.from(
+    (async function* () {
+      for await (const chunk of source) {
+        const bytes = typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.byteLength;
+        await governor.throttle(shareId, clientId, bytes, signal);
+        yield chunk;
+      }
+    })(),
+    { signal },
+  );
+  return Readable.toWeb(throttled) as ReadableStream;
 }
 
 /** Detect the image type of a thumbnail from its magic bytes; null when

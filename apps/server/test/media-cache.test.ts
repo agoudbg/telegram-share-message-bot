@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { MediaCache } from '../src/mediaCache.js';
 import type { MediaOriginClient } from '../src/mediaCache.js';
@@ -92,6 +92,73 @@ describe('MediaCache', () => {
     expect(getMediaCache(db, 'stale-size', 'full')).toBeNull();
     expect(await cacheFiles(dataDir)).toEqual([]);
   });
+
+  it('times out a Telegram origin fetch and removes the temporary file', async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    const origin: MediaOriginClient = {
+      fetch: (_mediaKey, _variant, signal) => {
+        upstreamSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      },
+    };
+    const { cache, db, dataDir } = await setupWithOrigin(origin, { downloadTimeoutMs: 10 });
+    const media = insertMedia(db, 'timeout', null);
+
+    await expect(cache.open(media, 'full')).rejects.toThrow('Media origin returned 504');
+    expect(upstreamSignal?.aborted).toBe(true);
+    expect(await cacheFiles(dataDir)).toEqual([]);
+  });
+
+  it('cancels an origin fetch when the request disconnects before headers arrive', async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    const origin: MediaOriginClient = {
+      fetch: (_mediaKey, _variant, signal) => {
+        upstreamSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      },
+    };
+    const { cache, db, dataDir } = await setupWithOrigin(origin);
+    const media = insertMedia(db, 'early-disconnect', null);
+    const client = new AbortController();
+    const opening = cache.open(media, 'full', client.signal);
+
+    await vi.waitFor(() => expect(upstreamSignal).toBeDefined());
+    client.abort(new Error('client disconnected'));
+    await expect(opening).rejects.toThrow('client disconnected');
+    expect(upstreamSignal?.aborted).toBe(true);
+    expect(await cacheFiles(dataDir)).toEqual([]);
+  });
+
+  it('cancels Telegram when the last connected consumer disconnects', async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    const origin: MediaOriginClient = {
+      fetch: (_mediaKey, _variant, signal) => {
+        upstreamSignal = signal;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(Buffer.from('first'));
+            signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+          },
+        });
+        return Promise.resolve(new Response(stream, { headers: { 'Content-Type': 'text/plain' } }));
+      },
+    };
+    const { cache, db, dataDir } = await setupWithOrigin(origin);
+    const media = insertMedia(db, 'disconnect', null);
+    const handle = await cache.open(media, 'full');
+    const client = new AbortController();
+    const iterator = handle.stream(0, undefined, client.signal)[Symbol.asyncIterator]();
+
+    expect(Buffer.from((await iterator.next()).value).toString()).toBe('first');
+    client.abort(new Error('client disconnected'));
+    await expect(iterator.next()).rejects.toThrow();
+    await vi.waitFor(() => expect(upstreamSignal?.aborted).toBe(true));
+    await vi.waitFor(async () => expect(await cacheFiles(dataDir)).toEqual([]));
+  });
 });
 
 async function setup(
@@ -113,6 +180,7 @@ async function setupWithOrigin(
     lowWatermarkBytes: number;
     ttlSeconds: number;
     now: () => number;
+    downloadTimeoutMs: number;
   }> = {},
 ) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'tbfb-cache-'));
@@ -127,6 +195,7 @@ async function setupWithOrigin(
     ttlSeconds: overrides.ttlSeconds ?? 86400,
     sweepIntervalSeconds: 3600,
     now: overrides.now,
+    downloadTimeoutMs: overrides.downloadTimeoutMs,
   });
   caches.push(cache);
   return { cache, db, dataDir, origin };

@@ -12,6 +12,7 @@ import type { TLJsonValue } from '@tbfb/tlbridge';
 import type { StorageDatabase } from '../storage/database.js';
 import { listMediaSources, listMessages, listPeers, listShareMedia } from '../storage/repository.js';
 import type { MediaCache } from '../mediaCache.js';
+import type { MediaRequestGovernor } from '../mediaGovernor.js';
 import type { PeerKind } from '../storage/repository.js';
 import { checkShareAccess } from './gate.js';
 import { isMediaWithinHostingLimit, registerMediaRoutes } from './media.js';
@@ -72,6 +73,7 @@ export interface ServerAppDeps {
   botUsername?: string;
   mediaCache?: MediaCache;
   maxHostedMediaBytes?: number;
+  mediaGovernor?: MediaRequestGovernor;
 }
 
 function mediaUrl(shareId: string, fakeKey: string): string {
