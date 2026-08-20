@@ -328,12 +328,45 @@ describe('BotApp', () => {
     expect(getShare(db, 'share_1')?.status).toBe('revoked');
   });
 
+  it('rejects invalid deep-link and delete arguments without querying storage', async () => {
+    const { app, texts } = await trackedSetup();
+
+    await app.handleMessage(commandMessage('u1', '/start get_share_1_9007199254740992'));
+    expect(texts.at(-1)!.text).toContain('invalid or expired');
+
+    await app.handleMessage(commandMessage('u1', `/delete ${'a'.repeat(33)}`));
+    expect(texts.at(-1)!.text).toContain('Usage');
+  });
+
+  it('turns corrupt stored fallback JSON into a user-facing error', async () => {
+    const { app, db, texts, docs } = await trackedSetup();
+    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('1001')));
+    await app.handleDoneCallback('u1');
+    db.prepare('UPDATE messages SET tl_json = ? WHERE share_id = ? AND seq = ?').run(
+      '{',
+      'share_1',
+      0,
+    );
+
+    await app.handleMessage(commandMessage('viewer', '/start get_share_1_0'));
+    expect(docs).toHaveLength(0);
+    expect(texts.at(-1)!.text).toContain('could not be delivered');
+  });
+
+  it('turns a delete database failure into a user-facing error', async () => {
+    const { app, db, texts } = await trackedSetup();
+    db.close();
+
+    await app.handleMessage(commandMessage('u1', '/delete share_1'));
+    expect(texts.at(-1)!.text).toContain('Could not revoke');
+  });
+
   it('delivers registered files via /start get_<shareId>_<seq> with rate limiting', async () => {
     const { app, db, texts, docs } = await trackedSetup();
-    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('doc1')));
+    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('1001')));
     await app.handleDoneCallback('u1');
 
-    const media = getMedia(db, 'doc1');
+    const media = getMedia(db, '1001');
     expect(media?.hosted).toBe(false);
     expect(media?.path).toBeNull();
 
@@ -342,7 +375,7 @@ describe('BotApp', () => {
     expect(docs).toHaveLength(1);
     expect(docs[0]).toMatchObject({
       chatId: 'viewer',
-      ref: { id: 'doc1', accessHash: '555', fileReference: 'aGk=' },
+      ref: { id: '1001', accessHash: '555', fileReference: 'aGk=' },
     });
 
     // Immediate retry is rate limited
@@ -353,10 +386,10 @@ describe('BotApp', () => {
 
   it('reports registered files without a reference as unresendable', async () => {
     const { app, db, texts, docs } = await trackedSetup();
-    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('noref', false)));
+    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('1002', false)));
     await app.handleDoneCallback('u1');
 
-    const media = getMedia(db, 'noref');
+    const media = getMedia(db, '1002');
     expect(media?.hosted).toBe(false);
     expect(media?.reference).toBeNull();
 
@@ -367,7 +400,7 @@ describe('BotApp', () => {
 
   it('refuses the fallback for revoked shares', async () => {
     const { app, db, texts } = await trackedSetup();
-    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('doc1')));
+    await app.handleMessage(forwardMessage('u1', 1, 100, largeDocument('1001')));
     await app.handleDoneCallback('u1');
     await app.handleMessage(commandMessage('u1', '/delete share_1'));
     expect(getShare(db, 'share_1')?.status).toBe('revoked');

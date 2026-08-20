@@ -26,6 +26,7 @@ import {
   buildShareLinks,
   buildShareReply,
   createShareId,
+  isValidShareId,
   parseGetPayload,
 } from './shares.js';
 
@@ -168,6 +169,8 @@ export class BotApp {
         const payload = parseGetPayload(arg);
         if (payload !== null) {
           await this.handleGetFallback(chatId, payload.shareId, payload.seq);
+        } else if (arg.trim().startsWith('get_')) {
+          await this.deps.ports.sendText(chatId, 'This media link is invalid or expired.');
         } else {
           await this.deps.ports.sendText(chatId, WELCOME_TEXT);
         }
@@ -191,15 +194,22 @@ export class BotApp {
         return;
       }
       case '/delete': {
-        if (arg === '') {
+        if (!isValidShareId(arg)) {
           await this.deps.ports.sendText(chatId, 'Usage: /delete <shareId>');
           return;
         }
-        const revoked = revokeShare(this.deps.db, arg, chatId);
-        await this.deps.ports.sendText(
-          chatId,
-          revoked ? `🗑 Share ${arg} revoked.` : 'Share not found (or not yours).',
-        );
+        try {
+          const revoked = revokeShare(this.deps.db, arg, chatId);
+          await this.deps.ports.sendText(
+            chatId,
+            revoked ? `🗑 Share ${arg} revoked.` : 'Share not found (or not yours).',
+          );
+        } catch (error) {
+          this.deps.log?.(`share revoke failed for ${arg}: ${String(error)}`);
+          await this.deps.ports
+            .sendText(chatId, 'Could not revoke that share right now. Please try again later.')
+            .catch(() => undefined);
+        }
         return;
       }
       default:
@@ -216,44 +226,51 @@ export class BotApp {
       return;
     }
 
-    const share = getShare(this.deps.db, shareId);
-    if (share === null || share.status !== 'public') {
-      await this.deps.ports.sendText(chatId, 'This share is not available.');
-      return;
-    }
+    try {
+      const share = getShare(this.deps.db, shareId);
+      if (share === null || share.status !== 'public') {
+        await this.deps.ports.sendText(chatId, 'This share is not available.');
+        return;
+      }
 
-    const row = getMessage(this.deps.db, shareId, seq);
-    const info = row === null ? null : extractMediaInfo(JSON.parse(row.tlJson));
-    if (info === null) {
-      await this.deps.ports.sendText(chatId, 'That message has no file to deliver.');
-      return;
-    }
+      const row = getMessage(this.deps.db, shareId, seq);
+      const info = row === null ? null : extractMediaInfo(JSON.parse(row.tlJson));
+      if (info === null) {
+        await this.deps.ports.sendText(chatId, 'That message has no file to deliver.');
+        return;
+      }
 
-    const media = getMedia(this.deps.db, info.key);
-    if (media === null) {
-      await this.deps.ports.sendText(chatId, 'That file is not available.');
-      return;
-    }
-    if (media.reference === null) {
-      await this.deps.ports.sendText(
-        chatId,
-        'That file cannot be re-sent (Telegram provided no download reference). Open the share link instead.',
+      const media = getMedia(this.deps.db, info.key);
+      if (media === null) {
+        await this.deps.ports.sendText(chatId, 'That file is not available.');
+        return;
+      }
+      if (media.reference === null) {
+        await this.deps.ports.sendText(
+          chatId,
+          'That file cannot be re-sent (Telegram provided no download reference). Open the share link instead.',
+        );
+        return;
+      }
+
+      const reference = parseInputDocumentRef(media.reference);
+      await this.sendQueueFor(chatId).enqueue(() =>
+        withRetry(
+          () =>
+            this.deps.ports.sendDocumentByRef(
+              chatId,
+              reference,
+              `File from share ${shareId}, message #${seq + 1}`,
+            ),
+          { sleep: this.deps.sleep },
+        ),
       );
-      return;
+    } catch (error) {
+      this.deps.log?.(`media fallback failed for ${shareId}/${seq}: ${String(error)}`);
+      await this.deps.ports
+        .sendText(chatId, 'That file could not be delivered right now. Please try again later.')
+        .catch(() => undefined);
     }
-
-    const reference = JSON.parse(media.reference) as InputDocumentRef;
-    await this.sendQueueFor(chatId).enqueue(() =>
-      withRetry(
-        () =>
-          this.deps.ports.sendDocumentByRef(
-            chatId,
-            reference,
-            `File from share ${shareId}, message #${seq + 1}`,
-          ),
-        { sleep: this.deps.sleep },
-      ),
-    );
   }
 
   private sendQueueFor(chatId: string): SendQueue {
@@ -329,4 +346,29 @@ export class BotApp {
     this.collectingPrompts.delete(batchId);
     await this.deps.ports.deleteMessages(chatId, [promptId]).catch(() => undefined);
   }
+}
+
+function parseInputDocumentRef(json: string): InputDocumentRef {
+  const value: unknown = JSON.parse(json);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Invalid InputDocument reference');
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.id !== 'string' ||
+    !/^\d{1,32}$/.test(candidate.id) ||
+    typeof candidate.accessHash !== 'string' ||
+    !/^-?\d{1,32}$/.test(candidate.accessHash) ||
+    typeof candidate.fileReference !== 'string' ||
+    candidate.fileReference.length === 0 ||
+    candidate.fileReference.length > 8192 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(candidate.fileReference)
+  ) {
+    throw new Error('Invalid InputDocument reference');
+  }
+  return {
+    id: candidate.id,
+    accessHash: candidate.accessHash,
+    fileReference: candidate.fileReference,
+  };
 }

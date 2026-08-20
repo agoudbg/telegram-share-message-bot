@@ -9,6 +9,7 @@ import {
   buildShareLinks,
   buildShareReply,
   createShareId,
+  isValidShareId,
   parseGetPayload,
 } from '../src/shares.js';
 
@@ -63,6 +64,18 @@ describe('parseGetPayload', () => {
     expect(parseGetPayload('get_abc')).toBeNull();
     expect(parseGetPayload('get_abc_x')).toBeNull();
     expect(parseGetPayload('get__1')).toBeNull();
+    expect(parseGetPayload(`get_${'a'.repeat(33)}_1`)).toBeNull();
+    expect(parseGetPayload('get_abc_9007199254740992')).toBeNull();
+    expect(parseGetPayload(`get_abc_${'9'.repeat(100)}`)).toBeNull();
+  });
+});
+
+describe('isValidShareId', () => {
+  it('accepts bounded URL-safe ids only', () => {
+    expect(isValidShareId('abc-D_e42')).toBe(true);
+    expect(isValidShareId('')).toBe(false);
+    expect(isValidShareId('contains space')).toBe(false);
+    expect(isValidShareId('a'.repeat(33))).toBe(false);
   });
 });
 

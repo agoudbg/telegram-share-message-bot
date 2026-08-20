@@ -3,6 +3,10 @@
 
 import { randomBytes } from 'node:crypto';
 
+const MAX_SHARE_ID_LENGTH = 32;
+const MAX_DEEP_LINK_PAYLOAD_LENGTH = 64;
+const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 /** Random unguessable share id (§2.8: share pages are public by default, so
  *  the id is the capability). 72 bits of entropy, URL-safe. */
 export function createShareId(): string {
@@ -48,9 +52,22 @@ export function buildShareReply(
 
 /** Parse a `/start get_<shareId>_<seq>` deep-link payload (§2.5). */
 export function parseGetPayload(payload: string): { shareId: string; seq: number } | null {
-  const match = /^get_([A-Za-z0-9_-]+)_(\d+)$/.exec(payload.trim());
+  const trimmed = payload.trim();
+  if (trimmed.length > MAX_DEEP_LINK_PAYLOAD_LENGTH) return null;
+  const match = /^get_(.+)_(\d+)$/.exec(trimmed);
   if (match === null) return null;
-  return { shareId: match[1]!, seq: Number(match[2]) };
+  const shareId = match[1]!;
+  const seq = Number(match[2]);
+  if (!isValidShareId(shareId) || !Number.isSafeInteger(seq) || seq < 0) return null;
+  return { shareId, seq };
+}
+
+export function isValidShareId(shareId: string): boolean {
+  return (
+    shareId.length > 0 &&
+    shareId.length <= MAX_SHARE_ID_LENGTH &&
+    SHARE_ID_PATTERN.test(shareId)
+  );
 }
 
 /** Per-key fixed-interval rate limiter (one action per interval per key). */
