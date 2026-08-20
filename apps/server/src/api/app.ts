@@ -78,6 +78,8 @@ function mediaUrl(shareId: string, fakeKey: string): string {
 export function createServerApp(deps: ServerAppDeps): Hono {
   const app = new Hono();
 
+  app.get('/healthz', (c) => c.json({ status: 'ok' }));
+
   app.get('/api/shares/:id', (c) => {
     const shareId = c.req.param('id');
     const access = checkShareAccess(deps.db, shareId);

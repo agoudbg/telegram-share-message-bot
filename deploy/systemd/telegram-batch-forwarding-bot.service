@@ -1,0 +1,26 @@
+[Unit]
+Description=Telegram batch forwarding bot and share server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tbfb
+Group=tbfb
+WorkingDirectory=/opt/telegram-batch-forwarding-bot/current
+EnvironmentFile=/etc/telegram-batch-forwarding-bot.env
+ExecStart=/usr/bin/node deploy/start-app.mjs
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/telegram-batch-forwarding-bot
+
+[Install]
+WantedBy=multi-user.target

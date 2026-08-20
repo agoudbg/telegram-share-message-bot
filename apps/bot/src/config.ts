@@ -7,6 +7,8 @@ export interface BotConfig {
   botToken: string;
   /** teleproto StringSession; may be empty on first login */
   session: string;
+  /** Optional file used to load and persist the StringSession */
+  sessionFile?: string;
   publicOrigin: string;
   botUsername: string;
   miniAppShortName?: string;
@@ -48,6 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     apiHash: required(env, 'API_HASH'),
     botToken: required(env, 'BOT_TOKEN'),
     session: env.SESSION ?? '',
+    sessionFile: env.SESSION_FILE || undefined,
     publicOrigin: required(env, 'PUBLIC_ORIGIN').replace(/\/+$/, ''),
     botUsername: required(env, 'BOT_USERNAME').replace(/^@/, ''),
     miniAppShortName: env.MINIAPP_SHORT_NAME || undefined,

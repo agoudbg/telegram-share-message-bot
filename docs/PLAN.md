@@ -184,7 +184,9 @@ previous message's (`next < prev`) → mark `nestedForward` → render it in
 ├── packages/
 │   └── tlbridge/       # TL JSON serialize/hydrate, sanitizer, forward heuristic, share-id utils (shared)
 ├── deploy/
-│   └── docker-compose.yml  # app (bot+server) + web static + Caddy TLS
+│   ├── systemd/        # source deployment service
+│   ├── nginx/          # host reverse-proxy template
+│   └── start-app.mjs   # bot + server process supervisor
 └── README.md / LICENSE (GPL-3.0) / docs/UPSTREAM.md
 ```
 
@@ -358,11 +360,14 @@ layer is isolated so Postgres can replace it later.
 - Acceptance: tapping the direct link inside Telegram opens the share
   fullscreen
 
-**Commit 20 — `feat(ops): one-command deployment`**
+**Commit 20 — `feat(ops): source deployment`**
 
-- docker-compose full stack (app, web static, Caddy TLS), volumes (SQLite +
-  media + session), env template, backup notes
-- Acceptance: `docker compose up` on a clean machine runs the whole flow
+- Build from source and supervise the bot and server with systemd. The host
+  Nginx instance owns public ports, TLS, static files and reverse proxying.
+- Document persistent session/data storage, health checks, lifecycle and
+  backup/restore procedures.
+- Acceptance: a clean machine runs the whole flow without exposing the
+  application server directly.
 
 **Commit 21 — `docs: upstream sync procedure and license`**
 

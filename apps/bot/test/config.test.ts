@@ -21,6 +21,7 @@ describe('loadConfig', () => {
       apiHash: 'deadbeef',
       botToken: '123:abc',
       session: '',
+      sessionFile: undefined,
       publicOrigin: 'https://share.example.com', // trailing slash stripped
       botUsername: 'mybot', // leading @ stripped
       miniAppShortName: undefined,
@@ -45,6 +46,12 @@ describe('loadConfig', () => {
     for (const value of ['0', 'false', '']) {
       expect(loadConfig({ ...BASE_ENV, TELEGRAM_TEST_SERVER: value }).testServer).toBe(false);
     }
+  });
+
+  it('accepts a persistent session file', () => {
+    expect(loadConfig({ ...BASE_ENV, SESSION_FILE: '/data/session.txt' }).sessionFile).toBe(
+      '/data/session.txt',
+    );
   });
 
   it('rejects non-numeric API_ID and invalid numeric overrides', () => {

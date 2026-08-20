@@ -38,8 +38,10 @@ function main(): void {
     botUsername: config.botUsername,
   });
 
-  serve({ fetch: app.fetch, port: config.port }, (info) => {
-    console.log(`Share server listening on :${info.port} (data dir: ${config.dataDir})`);
+  serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
+    console.log(
+      `Share server listening on ${config.host}:${info.port} (data dir: ${config.dataDir})`,
+    );
   });
 }
 

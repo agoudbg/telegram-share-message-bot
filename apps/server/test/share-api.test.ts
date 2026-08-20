@@ -131,6 +131,16 @@ async function fetchShare(app: ReturnType<typeof createServerApp>, id: string) {
   return { status: res.status, body: (await res.json()) as ShareResponse & { error?: string } };
 }
 
+describe('GET /healthz', () => {
+  it('reports server readiness without accessing share data', async () => {
+    const { app } = setup();
+    const response = await app.request('/healthz');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'ok' });
+  });
+});
+
 describe('GET /api/shares/:id', () => {
   it('serves sanitized messages, peers and the media map for a public share', async () => {
     const { app } = setup();

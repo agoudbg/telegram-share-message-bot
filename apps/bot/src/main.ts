@@ -16,6 +16,7 @@ import { BotApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createBotLogger } from './logging.js';
 import type { BotPorts, InputDocumentRef, NormalizedMessage, ResolvedPeer } from './ports.js';
+import { loadSessionValue, persistSessionValue } from './session.js';
 
 /** Load the first .env found walking up from the cwd (no dependency;
  *  Node ≥ 20.6 built-in). `pnpm --filter @tbfb/bot start` runs with the
@@ -63,7 +64,8 @@ async function main(): Promise<void> {
   const orphanShares = deleteStalePendingShares(db, STALE_PENDING_SHARE_SECONDS);
   if (orphanShares > 0) console.log(`Cleaned up ${orphanShares} orphan pending share(s).`);
 
-  const session = new sessions.StringSession(config.session);
+  const initialSession = await loadSessionValue(config.session, config.sessionFile);
+  const session = new sessions.StringSession(initialSession);
   const client = new TelegramClient(session, config.apiId, config.apiHash, {
     connectionRetries: 5,
     retryDelay: 1000,
@@ -80,10 +82,13 @@ async function main(): Promise<void> {
   await client.start({ botAuthToken: config.botToken });
   console.log(`Bot connected (${config.testServer ? 'Telegram TEST servers' : 'production'}).`);
 
-  // StringSession persistence: the session only changes on first login —
-  // print it once so the operator can store it in SESSION (.env.example)
+  // Persist into the data volume when configured; local development can keep
+  // using the printed `SESSION` value in `.env`.
   const savedSession = session.save();
-  if (savedSession !== config.session) {
+  if (config.sessionFile !== undefined) {
+    const wasPersisted = await persistSessionValue(config.sessionFile, savedSession);
+    if (wasPersisted) console.log(`MTProto session persisted to ${config.sessionFile}.`);
+  } else if (savedSession !== initialSession) {
     console.log('New MTProto session created. Persist it to avoid re-login:');
     console.log(`SESSION=${savedSession}`);
   }

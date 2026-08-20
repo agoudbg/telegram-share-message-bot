@@ -4,6 +4,9 @@
 export interface ServerConfig {
   /** Base directory holding tbfb.db and media/ (shared with the bot) */
   dataDir: string;
+  /** Interface exposed by the HTTP server; loopback keeps Nginx as the only
+   *  public entry point. */
+  host: string;
   port: number;
   /** Server-side secret keying the per-share fake-id HMAC. Combined with the
    *  share id it forms the sanitizer's shareSecret, so fake ids cannot be
@@ -28,6 +31,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   }
   return {
     dataDir: env.DATA_DIR || './data',
+    host: env.HOST || '127.0.0.1',
     port,
     sanitizeSecret,
     botUsername: env.BOT_USERNAME?.replace(/^@/, '') || undefined,
