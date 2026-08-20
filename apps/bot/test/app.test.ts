@@ -123,6 +123,7 @@ async function setup() {
       botUsername: 'mybot',
       miniAppShortName: 'view',
       batchSilenceMs: 2000,
+      mediaCacheMaxBytes: 1000,
       dataDir,
     },
     db,
@@ -257,6 +258,7 @@ describe('BotApp', () => {
         botUsername: 'mybot',
         miniAppShortName: 'view',
         batchSilenceMs: 2000,
+        mediaCacheMaxBytes: 1000,
         dataDir,
       },
       db,
@@ -296,6 +298,7 @@ describe('BotApp', () => {
         botUsername: 'mybot',
         miniAppShortName: 'view',
         batchSilenceMs: 2000,
+        mediaCacheMaxBytes: 1000,
         dataDir,
       },
       db,
@@ -331,7 +334,7 @@ describe('BotApp', () => {
     await app.handleDoneCallback('u1');
 
     const media = getMedia(db, 'doc1');
-    expect(media?.hosted).toBe(true);
+    expect(media?.hosted).toBe(false);
     expect(media?.path).toBeNull();
 
     // A viewer lands in the PM via the deep link
@@ -354,7 +357,7 @@ describe('BotApp', () => {
     await app.handleDoneCallback('u1');
 
     const media = getMedia(db, 'noref');
-    expect(media?.hosted).toBe(true);
+    expect(media?.hosted).toBe(false);
     expect(media?.reference).toBeNull();
 
     await app.handleMessage(commandMessage('viewer', '/start get_share_1_0'));

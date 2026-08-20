@@ -47,6 +47,7 @@ function main(): void {
     dataDir: config.dataDir,
     botUsername: config.botUsername,
     mediaCache,
+    maxHostedMediaBytes: config.mediaCacheMaxBytes,
   });
 
   serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {

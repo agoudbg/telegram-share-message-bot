@@ -15,12 +15,14 @@ export interface BotConfig {
   dataDir: string;
   internalMediaPort: number;
   internalMediaSecret: string;
+  mediaCacheMaxBytes: number;
   batchSilenceMs: number;
   /** Connect to the Telegram test DCs instead of production (TELEGRAM_TEST_SERVER) */
   testServer: boolean;
 }
 
 const DEFAULT_INTERNAL_MEDIA_PORT = 3001;
+const DEFAULT_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
 const DEFAULT_BATCH_SILENCE_MS = 10000;
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -37,6 +39,16 @@ function optionalInt(env: NodeJS.ProcessEnv, name: string, fallback: number): nu
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`Environment variable ${name} must be a positive number, got ${value}`);
+  }
+  return parsed;
+}
+
+function optionalSafeInt(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const value = env[name];
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`Environment variable ${name} must be a positive integer, got ${value}`);
   }
   return parsed;
 }
@@ -58,6 +70,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     dataDir: env.DATA_DIR || './data',
     internalMediaPort: optionalInt(env, 'INTERNAL_MEDIA_PORT', DEFAULT_INTERNAL_MEDIA_PORT),
     internalMediaSecret: required(env, 'INTERNAL_MEDIA_SECRET'),
+    mediaCacheMaxBytes: optionalSafeInt(
+      env,
+      'MEDIA_CACHE_MAX_BYTES',
+      DEFAULT_CACHE_MAX_BYTES,
+    ),
     batchSilenceMs: optionalInt(env, 'BATCH_SILENCE_MS', DEFAULT_BATCH_SILENCE_MS),
     testServer: /^(1|true|yes)$/i.test(env.TELEGRAM_TEST_SERVER ?? ''),
   };

@@ -158,7 +158,7 @@ describe('MediaPipeline', () => {
               },
         ),
     };
-    const pipeline = new MediaPipeline({ db, host });
+    const pipeline = new MediaPipeline({ db, host, maxHostedMediaBytes: 1000 });
     // Batches always have a share row in production (created at batch start);
     // the share_media links written by the pipeline reference it
     createShare(db, { id: 'share1', ownerUserId: 'u1' });
@@ -197,7 +197,7 @@ describe('MediaPipeline', () => {
       ]),
     );
 
-    expect(result).toMatchObject({ hosted: 3, unhosted: 0, failed: 0 });
+    expect(result).toMatchObject({ hosted: 1, unhosted: 2, failed: 0 });
 
     const hostedDoc = getMedia(db, 'd1');
     expect(hostedDoc).toMatchObject({
@@ -210,7 +210,7 @@ describe('MediaPipeline', () => {
     });
 
     const big = getMedia(db, 'big1');
-    expect(big?.hosted).toBe(true);
+    expect(big?.hosted).toBe(false);
     expect(big?.path).toBeNull();
     expect(JSON.parse(big!.reference!)).toEqual({
       id: 'big1',
@@ -229,10 +229,10 @@ describe('MediaPipeline', () => {
     const result = await pipeline.processBatch(
       batch([{ tlJson: documentMessage('noref', 5000, false) }]),
     );
-    expect(result).toMatchObject({ hosted: 1, failed: 0 });
+    expect(result).toMatchObject({ unhosted: 1, failed: 0 });
 
     const row = getMedia(db, 'noref');
-    expect(row?.hosted).toBe(true);
+    expect(row?.hosted).toBe(false);
     expect(row?.path).toBeNull();
     expect(row?.reference).toBeNull();
     expect(listMediaSources(db, 'noref')).toHaveLength(1);
@@ -242,7 +242,7 @@ describe('MediaPipeline', () => {
     const { db, pipeline } = await setup();
     const b = batch([{ tlJson: photoMessage('p1') }, { tlJson: photoMessage('p1') }]);
     const result = await pipeline.processBatch(b);
-    expect(result).toMatchObject({ hosted: 1, deduped: 1 });
+    expect(result).toMatchObject({ unhosted: 1, deduped: 1 });
     expect(getMedia(db, 'p1')).not.toBeNull();
     expect(listMediaSources(db, 'p1')).toHaveLength(2);
   });

@@ -61,6 +61,7 @@ export interface BotAppDeps {
     | 'botUsername'
     | 'miniAppShortName'
     | 'batchSilenceMs'
+    | 'mediaCacheMaxBytes'
   >;
   db: StorageDatabase;
   ports: BotPorts;
@@ -292,6 +293,7 @@ export class BotApp {
     const pipeline = new MediaPipeline({
       db: this.deps.db,
       host: this.deps.ports,
+      maxHostedMediaBytes: this.deps.config.mediaCacheMaxBytes,
       log: this.deps.log,
     });
 

@@ -26,6 +26,7 @@ export interface MediaRouteDeps {
   /** Base directory holding media/ (media rows store paths relative to it) */
   dataDir: string;
   mediaCache?: MediaCache;
+  maxHostedMediaBytes?: number;
 }
 
 /** Media keys are content-stable (document/photo ids), so responses are
@@ -79,7 +80,9 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
 
     const thumb = c.req.query('thumb') === '1';
     const relPath = thumb ? media.thumbPath : media.path;
-    if (!media.hosted) return c.json({ error: 'not_found' }, 404);
+    if (!media.hosted || !isMediaWithinHostingLimit(media.size, deps.maxHostedMediaBytes)) {
+      return c.json({ error: 'not_found' }, 404);
+    }
 
     if (relPath === null && deps.mediaCache !== undefined) {
       try {
@@ -149,6 +152,13 @@ export function registerMediaRoutes(app: Hono, deps: MediaRouteDeps): void {
     const stream = Readable.toWeb(createReadStream(absPath, { start, end })) as ReadableStream;
     return c.body(stream, status, headers);
   });
+}
+
+export function isMediaWithinHostingLimit(
+  size: number | null,
+  maxHostedMediaBytes: number | undefined,
+): boolean {
+  return size === null || maxHostedMediaBytes === undefined || size <= maxHostedMediaBytes;
 }
 
 function streamHandle(

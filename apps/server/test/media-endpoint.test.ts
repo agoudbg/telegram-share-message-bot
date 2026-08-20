@@ -221,6 +221,19 @@ describe('GET /media/:shareId/:key', () => {
     expect((await app.request(`/media/${SHARE_ID}/${fake888}`)).status).toBe(404);
   });
 
+  it('refuses legacy hosted media larger than the configured cache limit', async () => {
+    const { db, dataDir, fakeKey, url } = await setup();
+    const app = createServerApp({
+      db,
+      sanitizeSecret: SECRET,
+      dataDir,
+      maxHostedMediaBytes: CONTENT.length - 1,
+    });
+
+    expect(fakeKey).toBeTruthy();
+    expect((await app.request(url)).status).toBe(404);
+  });
+
   it('answers 404 for pending shares and 410 for revoked ones', async () => {
     const { db, app, fakeKey } = await setup();
 

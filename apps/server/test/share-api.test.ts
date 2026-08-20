@@ -206,6 +206,21 @@ describe('GET /api/shares/:id', () => {
     });
   });
 
+  it('downgrades legacy hosted rows that exceed the configured cache limit', async () => {
+    const db = openDatabase(':memory:');
+    seedShare(db, SHARE_ID);
+    const app = createServerApp({
+      db,
+      sanitizeSecret: SECRET,
+      dataDir: '/nonexistent',
+      maxHostedMediaBytes: 1024,
+    });
+
+    const { body } = await fetchShare(app, SHARE_ID);
+    const oversized = Object.values(body.media).find((entry) => entry.size === 2048);
+    expect(oversized).toMatchObject({ hosted: false, url: null, thumbUrl: null });
+  });
+
   it('exposes the configured bot username for unhosted-media deep links', async () => {
     const db = openDatabase(':memory:');
     seedShare(db, SHARE_ID);

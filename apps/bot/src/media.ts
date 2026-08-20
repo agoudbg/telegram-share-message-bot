@@ -169,6 +169,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
 export interface MediaPipelineDeps {
   db: StorageDatabase;
   host: Pick<BotPorts, 'resolvePeer'>;
+  maxHostedMediaBytes: number;
   log?: (line: string) => void;
 }
 
@@ -224,9 +225,10 @@ export class MediaPipeline {
     sourceMessageId: number,
   ): 'hosted' | 'unhosted' | 'deduped' {
     const reference = info.documentRef ?? info.photoRef ?? null;
+    const hosted = info.size === undefined || info.size <= this.deps.maxHostedMediaBytes;
     const inserted = insertMediaIfAbsent(this.deps.db, {
       key: info.key,
-      hosted: true,
+      hosted,
       path: null,
       reference: info.documentRef === undefined ? null : JSON.stringify(info.documentRef),
       mime: info.mime ?? null,
@@ -244,7 +246,7 @@ export class MediaPipeline {
           ? JSON.stringify({ hasThumbnail: info.hasThumbnail })
           : JSON.stringify({ ...reference, hasThumbnail: info.hasThumbnail }),
     });
-    return inserted ? 'hosted' : 'deduped';
+    return inserted ? (hosted ? 'hosted' : 'unhosted') : 'deduped';
   }
 
   private async processAvatars(batch: Batch): Promise<number> {

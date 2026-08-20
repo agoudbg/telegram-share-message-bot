@@ -14,7 +14,7 @@ import { listMediaSources, listMessages, listPeers, listShareMedia } from '../st
 import type { MediaCache } from '../mediaCache.js';
 import type { PeerKind } from '../storage/repository.js';
 import { checkShareAccess } from './gate.js';
-import { registerMediaRoutes } from './media.js';
+import { isMediaWithinHostingLimit, registerMediaRoutes } from './media.js';
 import { createShareSanitizer, sanitizeMediaKey } from './sanitize.js';
 
 export interface ShareResponse {
@@ -71,6 +71,7 @@ export interface ServerAppDeps {
   /** Bot username for unhosted-media deep links; omit to disable the button */
   botUsername?: string;
   mediaCache?: MediaCache;
+  maxHostedMediaBytes?: number;
 }
 
 function mediaUrl(shareId: string, fakeKey: string): string {
@@ -113,7 +114,8 @@ export function createServerApp(deps: ServerAppDeps): Hono {
       if (row.key.startsWith('avatar_')) continue; // served via peers[].avatarUrl
       const fakeKey = sanitizeMediaKey(sanitizer, row.key);
       const sources = listMediaSources(deps.db, row.key);
-      const servable = row.hosted && (row.path !== null || sources.length > 0);
+      const hosted = row.hosted && isMediaWithinHostingLimit(row.size, deps.maxHostedMediaBytes);
+      const servable = hosted && (row.path !== null || sources.length > 0);
       const hasThumbnail =
         row.thumbPath !== null ||
         sources.some((source) => {
@@ -129,7 +131,7 @@ export function createServerApp(deps: ServerAppDeps): Hono {
         size: row.size,
         width: row.width,
         height: row.height,
-        hosted: row.hosted,
+        hosted,
         retrievable: row.reference !== null,
         url: servable ? mediaUrl(shareId, fakeKey) : null,
         thumbUrl:
