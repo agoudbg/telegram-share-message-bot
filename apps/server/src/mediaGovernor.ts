@@ -97,11 +97,30 @@ export class MediaRequestGovernor {
     this.operations += 1;
     if (this.operations % 1000 !== 0) return;
     for (const buckets of [this.requestBuckets, this.bandwidthBuckets]) {
-      for (const [key, state] of buckets) {
-        if (state.lastSeenAt < now - ENTRY_IDLE_MS || buckets.size > MAX_ENTRIES) {
-          buckets.delete(key);
-        }
+      this.evictIdleBuckets(buckets, now);
+      this.evictOldestBucketsOverCapacity(buckets);
+    }
+  }
+
+  private evictIdleBuckets(buckets: Map<string, BucketState>, now: number): void {
+    const idleBefore = now - ENTRY_IDLE_MS;
+    for (const [key, state] of buckets) {
+      if (state.lastSeenAt < idleBefore) {
+        buckets.delete(key);
       }
+    }
+  }
+
+  private evictOldestBucketsOverCapacity(buckets: Map<string, BucketState>): void {
+    const overflow = buckets.size - MAX_ENTRIES;
+    if (overflow <= 0) return;
+
+    const oldestKeys = [...buckets.entries()]
+      .sort(([, left], [, right]) => left.lastSeenAt - right.lastSeenAt)
+      .slice(0, overflow)
+      .map(([key]) => key);
+    for (const key of oldestKeys) {
+      buckets.delete(key);
     }
   }
 }

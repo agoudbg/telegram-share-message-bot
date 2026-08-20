@@ -31,6 +31,27 @@ describe('MediaRequestGovernor', () => {
     await governor.throttle('share-a', 'client-a', 20);
     expect(sleeps).toEqual([1000, 1000]);
   });
+
+  it('evicts only the least recently seen buckets when capacity is exceeded', () => {
+    let now = 0;
+    const governor = createGovernor({ now: () => now });
+
+    expect(governor.allowRequest('protected-share', 'protected-client')).toBe(true);
+    expect(governor.allowRequest('protected-share', 'protected-client')).toBe(true);
+    for (let index = 0; index < 4_996; index += 1) {
+      governor.allowRequest(`old-share-${index}`, `old-client-${index}`);
+    }
+
+    now = 1;
+    expect(governor.allowRequest('protected-share', 'protected-client')).toBe(false);
+
+    now = 2;
+    for (let index = 0; index < 501; index += 1) {
+      governor.allowRequest(`new-share-${index}`, `new-client-${index}`);
+    }
+
+    expect(governor.allowRequest('protected-share', 'protected-client')).toBe(false);
+  });
 });
 
 function createGovernor(
