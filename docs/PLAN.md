@@ -375,6 +375,8 @@ it later.
 
 - Source build supervised by systemd, with the existing host
   reverse proxy owning public ports and TLS.
+- Share HTML and reverse-proxy responses declare `noindex, nofollow`; crawlers
+  remain allowed to fetch pages so they can observe the indexing directive.
 - Document environment, health checks, upgrades, backups and rollback.
 - Acceptance: a clean machine runs the whole flow without
   exposing the application server directly.

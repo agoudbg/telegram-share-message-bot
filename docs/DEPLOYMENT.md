@@ -100,6 +100,12 @@ TLS automation to add its certificate and HTTPS listener. It serves the WebA
 build directly and proxies only `/api/` and `/media/` to the loopback server.
 It overwrites client-IP headers, which is required before enabling
 `TRUST_PROXY=1`. Never expose port 3000 publicly while that flag is enabled.
+The virtual host also sends `X-Robots-Tag: noindex, nofollow` for share pages
+and public resources. Verify the deployed header after reloading Nginx:
+
+```bash
+curl --head https://shares.example.com/s/<shareId>
+```
 
 ### Logs and lifecycle
 
